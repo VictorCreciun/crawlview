@@ -14,10 +14,17 @@ import { toMarkdown } from "./report/markdown.js";
 import { diffSnapshot, readSnapshot, writeSnapshot } from "./snapshot.js";
 import type { RunOptions } from "./types.js";
 
+/* Same trap as the renderer: createColors returns a new object and leaves the
+   module untouched, so --no-color has to be threaded rather than switched on.
+   The help text is a function for the same reason — built at import time it
+   would bake in whatever picocolors decided before the flags were parsed. */
+type Ink = Omit<typeof pc, "createColors" | "isColorSupported">;
+const PLAIN: Ink = pc.createColors(false);
+
 const require = createRequire(import.meta.url);
 const { version } = require("../package.json") as { version: string };
 
-const HELP = `
+const help = (ink: Ink) => `
 ${pc.bold("crawlview")} — see what search engines and AI crawlers actually store
 
   ${pc.dim("$")} crawlview <url> [options]
@@ -127,23 +134,23 @@ export async function main(argv: string[]): Promise<number> {
 
   const { values, positionals } = parsed;
   const color = values.color !== false && !process.env.NO_COLOR;
-  if (!color) pc.createColors(false);
+  const ink: Ink = color ? pc : PLAIN;
 
   if (values.version) {
     process.stdout.write(`${version}\n`);
     return 0;
   }
   if (values.help || (!positionals.length && !values["list-agents"])) {
-    process.stdout.write(`${HELP}\n`);
+    process.stdout.write(`${help(ink)}\n`);
     return positionals.length ? 0 : values.help ? 0 : 1;
   }
   if (values["list-agents"]) {
     const width = Math.max(...AGENTS.map((a) => a.id.length));
     for (const group of ["search", "ai", "social"] as const) {
-      process.stdout.write(`\n${pc.bold(group)}\n`);
+      process.stdout.write(`\n${ink.bold(group)}\n`);
       for (const agent of AGENTS.filter((a) => a.group === group)) {
         const js = agent.ua === null ? "robots token only" : `js: ${agent.js}`;
-        process.stdout.write(`  ${agent.id.padEnd(width)}  ${pc.dim(js.padEnd(18))}${agent.note ? pc.dim(agent.note) : ""}\n`);
+        process.stdout.write(`  ${agent.id.padEnd(width)}  ${ink.dim(js.padEnd(18))}${agent.note ? ink.dim(agent.note) : ""}\n`);
       }
     }
     process.stdout.write("\n");
@@ -184,15 +191,15 @@ export async function main(argv: string[]): Promise<number> {
   if (values.render) {
     const capability = await renderCapability();
     if (!capability.available) {
-      process.stderr.write(`${pc.yellow("crawlview:")} ${capability.detail}\n`);
-      process.stderr.write(pc.dim("           continuing without the browser comparison\n"));
+      process.stderr.write(`${ink.yellow("crawlview:")} ${capability.detail}\n`);
+      process.stderr.write(ink.dim("           continuing without the browser comparison\n"));
       options.render = false;
     }
   }
 
   const { report, warnings } = await analyse(options);
   for (const warning of warnings) {
-    process.stderr.write(`${pc.yellow("crawlview:")} ${warning}\n`);
+    process.stderr.write(`${ink.yellow("crawlview:")} ${warning}\n`);
   }
 
   // Site mode runs on top of the single-page analysis so the report carries both.
@@ -243,7 +250,7 @@ export async function main(argv: string[]): Promise<number> {
     process.stdout.write(`${renderTerminal(report, { color, verbose: values.verbose ?? false })}\n`);
     const written = [values.html, values.md, values.snapshot].filter(Boolean);
     if (written.length) {
-      process.stdout.write(pc.dim(`  wrote ${written.join(", ")}\n\n`));
+      process.stdout.write(ink.dim(`  wrote ${written.join(", ")}\n\n`));
     }
   }
 
@@ -260,7 +267,7 @@ export async function main(argv: string[]): Promise<number> {
       .filter((a) => a.facts)
       .reduce((acc, a) => Math.min(acc, (a.facts!.wordCount / reference) * 100), 100);
     if (worst < minText) {
-      process.stderr.write(`${pc.red("crawlview:")} a crawler sees ${Math.round(worst)}% of the browser's text, below the ${minText}% floor\n`);
+      process.stderr.write(`${ink.red("crawlview:")} a crawler sees ${Math.round(worst)}% of the browser's text, below the ${minText}% floor\n`);
       return 1;
     }
   }
@@ -272,6 +279,8 @@ if (invokedDirectly) {
   main(process.argv.slice(2))
     .then((code) => process.exit(code))
     .catch((err: unknown) => {
+      // Outside main, so the parsed flags are gone; picocolors' own detection
+      // is the best available answer for a crash message.
       process.stderr.write(`${pc.red("crawlview:")} ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
       process.exit(2);
     });

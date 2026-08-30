@@ -169,6 +169,8 @@ const MUTATIONS = [
     from: '<meta name="robots" content="noindex">', to: "" },
   { id: "report/html-brand", file: "src/report/html.ts",
     from: "const brandBlock = options.brand", to: "const brandBlock = !options.brand" },
+  { id: "report/terminal-nocolor", file: "src/report/terminal.ts",
+    from: "const ink: Ink = opts.color ? pc : PLAIN;", to: "const ink: Ink = pc;" },
   { id: "report/terminal-verbose", file: "src/report/terminal.ts",
     from: 'if (severity === "info" && !opts.verbose) continue;', to: "" },
   { id: "report/json-summary", file: "src/report/json.ts",
