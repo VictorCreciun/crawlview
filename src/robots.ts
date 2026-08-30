@@ -188,3 +188,23 @@ export function robotsUrl(pageUrl: string): string {
   const u = new URL(pageUrl);
   return `${u.protocol}//${u.host}/robots.txt`;
 }
+
+/** Disallow rules that apply to everyone but not to this agent.
+ *
+ *  A group named for a specific crawler *replaces* the wildcard group; it does
+ *  not extend it. So `User-agent: Googlebot` followed by `Allow: /` cancels
+ *  every Disallow written under `User-agent: *` — for Google only, silently,
+ *  and in a file whose whole purpose is to state what is off limits. Almost
+ *  everyone who writes such a block means it as an addition. */
+export function wildcardOverrides(robots: Robots, agent: Agent): string[] {
+  const { group, token } = findGroup(robots, agent);
+  if (!group || !token) return [];
+
+  const wildcard = robots.groups.find((g) => g.tokens.includes("*"));
+  if (!wildcard || wildcard === group) return [];
+
+  const own = new Set(group.rules.filter((r) => !r.allow).map((r) => r.pattern));
+  return wildcard.rules
+    .filter((r) => !r.allow && !own.has(r.pattern))
+    .map((r) => r.pattern);
+}

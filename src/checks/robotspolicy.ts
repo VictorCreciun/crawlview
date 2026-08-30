@@ -1,4 +1,5 @@
 import type { Finding, PageReport } from "../types.js";
+import { wildcardOverrides, type Robots } from "../robots.js";
 import { finding, truncate, unique } from "./util.js";
 
 /** What robots.txt permits, per agent. Separate from whether the page renders:
@@ -55,9 +56,27 @@ export function checkRobotsPolicy(report: PageReport): Finding[] {
 }
 
 /** Findings about the robots.txt file itself rather than this URL. */
-export function checkRobotsFile(report: PageReport, malformed: string[], sitemaps: string[]): Finding[] {
+export function checkRobotsFile(
+  report: PageReport,
+  robots: Robots,
+): Finding[] {
   const out: Finding[] = [];
   if (!report.robotsTxt || report.robotsTxt.status !== 200) return out;
+  const { malformed, sitemaps } = robots;
+
+  /* The rule almost nobody knows: a group named for one crawler replaces the
+     wildcard group rather than adding to it. Somebody writes
+     `User-agent: Googlebot / Allow: /` meaning "Google is welcome", and every
+     Disallow above it stops applying to Google alone. */
+  for (const result of report.agents) {
+    const dropped = wildcardOverrides(robots, result.agent);
+    if (!dropped.length) continue;
+    out.push(finding("robots-group-overrides", "warn",
+      `${result.agent.label} is exempt from ${dropped.length} Disallow rule${dropped.length === 1 ? "" : "s"} that apply to every other crawler.`,
+      { detail: "A group named for a specific crawler replaces the wildcard group, it does not extend it. Every Disallow under `User-agent: *` stops applying to this one. If that was not the intention, repeat those rules inside its group.",
+        agents: [result.agent.id],
+        evidence: dropped.slice(0, 8).map((p) => `Disallow: ${p}`) }));
+  }
 
   if (malformed.length) {
     out.push(finding("robots-malformed", "warn",

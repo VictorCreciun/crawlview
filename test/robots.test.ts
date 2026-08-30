@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluate, parseRobots } from "../src/robots.js";
+import { evaluate, parseRobots, wildcardOverrides } from "../src/robots.js";
 import { agentById } from "../src/agents.js";
 
 const gptbot = agentById("gptbot")!;
@@ -80,5 +80,41 @@ describe("evaluate", () => {
 
   it("allows everything when there is no robots.txt", () => {
     expect(evaluate(null, gptbot, "https://e.com/anything").allowed).toBe(true);
+  });
+});
+
+describe("wildcardOverrides", () => {
+  it("finds the rules a named group silently drops", () => {
+    const robots = parseRobots(`
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /cart
+Disallow: /login
+
+User-agent: Googlebot
+Allow: /
+    `);
+    const dropped = wildcardOverrides(robots, googlebot);
+    expect(dropped.sort()).toEqual(["/admin/", "/cart", "/login"]);
+    // And the consequence: Googlebot really is allowed where others are not.
+    expect(evaluate(robots, googlebot, "https://e.com/cart").allowed).toBe(true);
+    expect(evaluate(robots, gptbot, "https://e.com/cart").allowed).toBe(false);
+  });
+
+  it("says nothing when the named group repeats the rules", () => {
+    const robots = parseRobots(`
+User-agent: *
+Disallow: /cart
+
+User-agent: Googlebot
+Disallow: /cart
+    `);
+    expect(wildcardOverrides(robots, googlebot)).toEqual([]);
+  });
+
+  it("says nothing for an agent that only matches the wildcard", () => {
+    const robots = parseRobots("User-agent: *\nDisallow: /cart");
+    expect(wildcardOverrides(robots, googlebot)).toEqual([]);
   });
 });

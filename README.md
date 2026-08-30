@@ -62,6 +62,7 @@ starts instantly; the browser comparison is opt-in (see below).
 **robots.txt, per crawler**
 - Whether each crawler is allowed this exact URL, and which rule decided it
 - The AI-only tokens — `Google-Extended`, `Applebot-Extended` — that never fetch anything and so cannot be observed any other way
+- **A named group that silently cancels the wildcard rules.** `User-agent: Googlebot` followed by `Allow: /` does not extend `User-agent: *` — it replaces it, so every `Disallow` above stops applying to Google alone. Written as a welcome, read as an exemption
 - Misspelled directives. A typo parses cleanly and then does nothing, silently
 
 **Indexing directives**

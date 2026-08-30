@@ -143,7 +143,7 @@ export async function analyse(options: Partial<RunOptions> & { url: string }): P
 
   const findings: Finding[] = [
     ...checkRobotsPolicy(report),
-    ...(robots ? checkRobotsFile(report, robots.malformed, robots.sitemaps) : []),
+    ...(robots ? checkRobotsFile(report, robots) : []),
     ...checkDivergence(report),
     ...checkBasics(report),
     ...checkStructured(report),

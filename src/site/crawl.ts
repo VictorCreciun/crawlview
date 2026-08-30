@@ -260,7 +260,12 @@ export async function crawlSite(opts: SiteOptions): Promise<{ site: SiteReport; 
   }
 
   const sitemapSet = new Set(targets.map((u) => { try { const p = new URL(u); return p.origin + p.pathname.replace(/\/+$/, ""); } catch { return u; } }));
-  const missing = [...linked].filter((l) => !sitemapSet.has(l));
+  /* A page robots.txt disallows belongs out of the sitemap: a cart, a login,
+     an account page. Listing them here sent someone chasing three deliberate
+     exclusions as if they were oversights, which is worse than staying quiet. */
+  const missing = [...linked].filter(
+    (l) => !sitemapSet.has(l) && (!robots || evaluate(robots, agent, l).allowed),
+  );
   if (missing.length) {
     findings.push(finding("missing-from-sitemap", "info",
       `${missing.length} internally linked page${missing.length === 1 ? " is" : "s are"} absent from the sitemap.`,
