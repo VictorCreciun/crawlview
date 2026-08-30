@@ -1,10 +1,14 @@
 name: publish
 
-# Publishing is deliberately manual: a tag push or a button, never a merge.
+# A button, never a trigger. A tag push used to start this too, and it failed
+# every time on a repository without an NPM_TOKEN secret — which is how a fresh
+# public repository ends up with a red cross as the first thing anyone sees.
+# Releasing is a decision, so it takes a deliberate click.
+#
+# Requires an NPM_TOKEN secret with publish rights. Without one, publish from a
+# machine that is logged in: npm publish --access public
 on:
   workflow_dispatch:
-  push:
-    tags: ["v*"]
 
 jobs:
   npm:
