@@ -33,6 +33,24 @@ const SPECS: Record<string, TypeSpec> = {
   Review: { required: ["reviewRating"], recommended: ["author"] },
 };
 
+/* Properties schema.org lets you express more than one way. Demanding the
+   exact name when an equivalent is present reports a page for using the
+   better form: a shop that publishes openingHoursSpecification, with days and
+   times, was told it was missing openingHours, the text shorthand. */
+const ALIASES: Record<string, string[]> = {
+  openingHours: ["openingHoursSpecification"],
+  openingHoursSpecification: ["openingHours"],
+  // Google accepts either count on an AggregateRating.
+  reviewCount: ["ratingCount"],
+  ratingCount: ["reviewCount"],
+};
+
+/** Is this property, or something standing in for it, present and filled in? */
+function present(node: Node, key: string): boolean {
+  const filled = (k: string) => k in node && node[k] !== "" && node[k] != null;
+  return filled(key) || (ALIASES[key] ?? []).some(filled);
+}
+
 type Node = Record<string, unknown>;
 
 function isNode(value: unknown): value is Node {
@@ -166,14 +184,14 @@ export function checkStructured(report: PageReport): Finding[] {
     for (const type of typesOf(node)) {
       const spec = SPECS[type];
       if (!spec) continue;
-      const missingRequired = spec.required.filter((key) => !(key in node) || node[key] === "" || node[key] == null);
+      const missingRequired = spec.required.filter((key) => !present(node, key));
       if (missingRequired.length) {
         out.push(finding("jsonld-required-missing", "error",
           `${type} is missing ${missingRequired.length === 1 ? "a required property" : "required properties"}: ${missingRequired.join(", ")}.`,
           { group: "A structured-data type is missing a required property.",
             detail: spec.richResult ? `Without it the page cannot qualify for the ${spec.richResult} rich result.` : undefined }));
       }
-      const missingRecommended = spec.recommended.filter((key) => !(key in node));
+      const missingRecommended = spec.recommended.filter((key) => !present(node, key));
       if (missingRecommended.length && !missingRequired.length) {
         out.push(finding("jsonld-recommended-missing", "info",
           `${type} omits recommended ${missingRecommended.length === 1 ? "property" : "properties"}: ${missingRecommended.join(", ")}.`));

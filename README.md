@@ -93,7 +93,7 @@ starts instantly; the browser comparison is opt-in (see below).
 - Sitemap URLs that 404, redirect, are `noindex`, or are disallowed in robots.txt
 - Pages that canonicalise somewhere other than themselves
 - Orphans: in the sitemap, linked from nowhere
-- Pages linked internally but missing from the sitemap
+- Pages linked internally but missing from the sitemap, and among them the ones that answer 404 — every internal link is a promise the site makes about itself
 - Duplicate titles and descriptions, and pages that look identical to each other
 
 **Also**

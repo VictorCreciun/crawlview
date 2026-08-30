@@ -166,6 +166,8 @@ describe("sitemap findings", () => {
     noH1?: boolean;
     /** Raw JSON-LD to serve, per URL. */
     jsonld?: Record<string, string>;
+    /** Served with a 200 but deliberately left out of the sitemap. */
+    extra?: string[];
   } = { urls: [] };
 
   beforeAll(async () => {
@@ -196,7 +198,8 @@ describe("sitemap findings", () => {
         res.writeHead(301, { location: to }).end();
         return;
       }
-      const status = plan.status?.[url] ?? (plan.urls.includes(url) ? 200 : 404);
+      const known = plan.urls.includes(url) || (plan.extra ?? []).includes(url);
+      const status = plan.status?.[url] ?? (known ? 200 : 404);
       if (status !== 200) {
         res.writeHead(status, { "content-type": "text/html" }).end("<html><body>no</body></html>");
         return;
@@ -301,8 +304,36 @@ describe("sitemap findings", () => {
   }, 20_000);
 
   it("reports a page linked internally but absent from the sitemap", async () => {
-    plan = { urls: ["/"], links: () => ["/", "/unlisted"] };
-    expect(await run()).toContain("missing-from-sitemap");
+    plan = { urls: ["/"], extra: ["/unlisted"], links: () => ["/", "/unlisted"] };
+    const found = await run();
+    expect(found).toContain("missing-from-sitemap");
+    // It exists, so it is a note about the sitemap and nothing more.
+    expect(found).not.toContain("internal-link-broken");
+  }, 20_000);
+
+  it("does not call a page unlisted just because --limit stopped short of it", async () => {
+    /* The sitemap set was built from the pages this run had room to fetch, so
+       any limit below the sitemap's size — the default on a real site — turned
+       the remainder into "linked but unlisted", and then into suspected dead
+       links that got requested one by one. */
+    plan = { urls: ["/", "/a", "/b", "/c"] };
+    const { findings, site } = await crawlSite({
+      ...DEFAULT_OPTIONS, url: `${base}/`, agents: ["googlebot"], limit: 2,
+      sitemapUrl: null, agentId: "googlebot", ignoreCrawlDelay: true, timeoutMs: 5000,
+    });
+    expect(site.urls).toHaveLength(2);
+    const codes = findings.map((f) => f.code);
+    expect(codes).not.toContain("missing-from-sitemap");
+    expect(codes).not.toContain("internal-link-broken");
+  }, 20_000);
+
+  it("reports an internal link that leads nowhere", async () => {
+    /* A page nobody listed is usually fine; a page linked from the site that
+       answers 404 is not, and the two used to be reported together as one
+       shrug. Every internal link is a promise the site makes about itself. */
+    plan = { urls: ["/"], links: () => ["/", "/gone-for-good"] };
+    const found = await run();
+    expect(found).toContain("internal-link-broken");
   }, 20_000);
 
   it("does not lend one page's numbers to the whole group", async () => {

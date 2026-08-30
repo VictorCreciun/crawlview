@@ -126,6 +126,44 @@ describe("ItemList against the page", () => {
   const all = ["Dashcam AZDOME M330", "Dashcam AZDOME M550", "Camera 4K 360 grade",
                "Modulator FM auto", "Repeater WiFi 1200"];
 
+  it("accepts opening hours given in the structured form", () => {
+    /* schema.org has openingHours, a text shorthand, and the richer
+       openingHoursSpecification. Demanding the first when the second is there
+       reports a page for using the better one. */
+    const html = `<html lang="en"><head><title>T</title>
+      <link rel="canonical" href="${URL_}">
+      <script type="application/ld+json">${JSON.stringify({
+        "@context": "https://schema.org", "@type": "LocalBusiness",
+        name: "Shop", address: "a", telephone: "+37360000000", geo: { "@type": "GeoCoordinates" },
+        openingHoursSpecification: { "@type": "OpeningHoursSpecification", opens: "09:00", closes: "19:00" },
+      })}</script></head><body><main><p>Call +373 60 000 000. Open 09:00 to 19:00.</p></main></body></html>`;
+    const found = checkStructured(report(html));
+    const note = found.find((f) => f.code === "jsonld-recommended-missing");
+    expect(note?.title ?? "").not.toContain("openingHours");
+  });
+
+  it("still asks for opening hours when neither form is there", () => {
+    const html = `<html lang="en"><head><title>T</title>
+      <link rel="canonical" href="${URL_}">
+      <script type="application/ld+json">${JSON.stringify({
+        "@context": "https://schema.org", "@type": "LocalBusiness",
+        name: "Shop", address: "a", telephone: "+37360000000", geo: { "@type": "GeoCoordinates" },
+      })}</script></head><body><main><p>Call +373 60 000 000.</p></main></body></html>`;
+    const note = checkStructured(report(html)).find((f) => f.code === "jsonld-recommended-missing")!;
+    expect(note.title).toContain("openingHours");
+  });
+
+  it("takes either count on a rating", () => {
+    const html = `<html lang="en"><head><title>T</title>
+      <script type="application/ld+json">${JSON.stringify({
+        "@context": "https://schema.org", "@type": "AggregateRating",
+        ratingValue: 4, bestRating: 5, ratingCount: 12,
+      })}</script></head>
+      <body><main><p>Rated 4 by 12 reviews from readers.</p></main></body></html>`;
+    const note = checkStructured(report(html)).find((f) => f.code === "jsonld-recommended-missing");
+    expect(note?.title ?? "").not.toContain("reviewCount");
+  });
+
   it("names the gap when the markup lists more than the grid renders", () => {
     const found = checkStructured(report(page(all.slice(0, 3), all)));
     const item = found.find((x) => x.code === "itemlist-not-on-page");

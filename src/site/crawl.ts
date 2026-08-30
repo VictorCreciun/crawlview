@@ -301,13 +301,41 @@ export async function crawlSite(opts: SiteOptions): Promise<{ site: SiteReport; 
         evidence: orphans.slice(0, 5).map((r) => r.url) }));
   }
 
-  const sitemapSet = new Set(targets.map((u) => { try { const p = new URL(u); return p.origin + p.pathname.replace(/\/+$/, ""); } catch { return u; } }));
+  /* Every address the sitemap lists, not only the ones this run had room to
+     fetch. Built from `targets` it meant that with any --limit below the
+     sitemap's size — which is the default on a site of any size — the pages
+     left out were reported as linked but unlisted, and then requested one by
+     one as suspected dead links. A page is in the sitemap whether or not we
+     got to it. */
+  const sitemapSet = new Set(locs.map((u) => { try { const p = new URL(u); return p.origin + p.pathname.replace(/\/+$/, ""); } catch { return u; } }));
   /* A page robots.txt disallows belongs out of the sitemap: a cart, a login,
      an account page. Listing them here sent someone chasing three deliberate
      exclusions as if they were oversights, which is worse than staying quiet. */
   const missing = [...linked].filter(
     (l) => !sitemapSet.has(l) && (!robots || evaluate(robots, agent, l).allowed),
   );
+  /* Linked but unlisted pages get a request each, capped. A page nobody put in
+     the sitemap is usually fine; a page linked from the site that answers 404
+     is not, and the two were reported together as one shrug. Every internal
+     link is a promise the site makes to a crawler about itself. */
+  const probes = missing.slice(0, 25);
+  const broken404: string[] = [];
+  if (probes.length) {
+    const checked = await pool(probes, Math.min(concurrency, 4), delayMs, async (url) => {
+      const cap = await capture({ url, ua: agent.ua, agentId: agent.id }, opts);
+      return { url, status: cap.error ? null : cap.status };
+    });
+    for (const r of checked) {
+      if (r.status !== null && r.status >= 400) broken404.push(`${r.status} ${r.url}`);
+    }
+  }
+  if (broken404.length) {
+    findings.push(finding("internal-link-broken", "error",
+      `${broken404.length} internal link${broken404.length === 1 ? " points" : "s point"} at a page that does not exist.`,
+      { detail: "A link on the site leads to an error. Crawlers follow it, find nothing, and spend the visit on a dead end — and so does anyone who clicks it.",
+        evidence: broken404.slice(0, 6) }));
+  }
+
   if (missing.length) {
     findings.push(finding("missing-from-sitemap", "info",
       `${missing.length} internally linked page${missing.length === 1 ? " is" : "s are"} absent from the sitemap.`,
