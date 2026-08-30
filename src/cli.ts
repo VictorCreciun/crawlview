@@ -264,6 +264,29 @@ export async function main(argv: string[]): Promise<number> {
     });
     report.site = site;
     report.findings = rank([...report.findings, ...findings]);
+
+    /* The page named on the command line is also one of the pages the crawl
+       walked, so its own findings came back twice: once on their own and once
+       inside the grouped line. A report saying "No <h1> on the page" and then
+       "8 pages — No <h1> on the page" is describing one thing twice, and the
+       reader has to work out that the first is a subset of the second.
+
+       Only the checks the crawl repeats are dropped. What the single pass
+       alone does — hreflang reciprocity, the 404 probe, robots policy, the
+       divergence table — has no group to be folded into and stays. */
+    const same = (a: string, b: string) => {
+      try {
+        const x = new URL(a), y = new URL(b);
+        return x.origin === y.origin && x.pathname.replace(/\/+$/, "") === y.pathname.replace(/\/+$/, "");
+      } catch { return a === b; }
+    };
+    const walked = site.pages.find((page) =>
+      same(page.url, report.url) ||
+      report.agents.some((a) => a.capture && same(page.url, a.capture.finalUrl)));
+    if (walked) {
+      const covered = new Set(walked.findings.map((f) => f.code));
+      report.findings = report.findings.filter((f) => !covered.has(f.code));
+    }
   }
 
   if (values.diff) {

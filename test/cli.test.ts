@@ -24,7 +24,14 @@ beforeAll(async () => {
       res.writeHead(200, { "content-type": "text/plain" }).end("User-agent: *\nAllow: /\n");
       return;
     }
-    if (req.url !== "/") {
+    if (req.url === "/sitemap.xml") {
+      res.writeHead(200, { "content-type": "application/xml" });
+      res.end(`<?xml version="1.0"?><urlset>${
+        ["/", "/a"].map((p) => `<url><loc>${origin}${p}</loc></url>`).join("")
+      }</urlset>`);
+      return;
+    }
+    if (req.url !== "/" && req.url !== "/a") {
       res.writeHead(404, { "content-type": "text/html" }).end("<html><body>gone</body></html>");
       return;
     }
@@ -181,6 +188,27 @@ describe("output", () => {
     expect(off.out.includes(ESC)).toBe(false);
     expect(on.out.includes(ESC)).toBe(true);
   }, 20_000);
+
+  it("does not report the named page twice in sitemap mode", async () => {
+    /* The page named on the command line is also one of the pages the crawl
+       walks, so its findings used to come back once on their own and once
+       inside the grouped line: "No <h1> on the page" followed by "8 pages —
+       No <h1> on the page", the first being a subset of the second. */
+    body = BROKEN;
+    const { out } = await run([`${origin}/`, "-a", "googlebot", "--no-color", "--sitemap"]);
+    const grouped = (out.match(/pages — The canonical points at localhost/g) ?? []).length;
+    const alone = (out.match(/^ {4}The canonical points at localhost/gm) ?? []).length;
+    expect(grouped).toBe(1);
+    expect(alone).toBe(0);
+  }, 30_000);
+
+  it("keeps a single-pass finding that no group covers", async () => {
+    // hreflang, the 404 probe and robots policy have no grouped form to be
+    // folded into, so they must survive sitemap mode.
+    body = CLEAN;
+    const { out } = await run([`${origin}/`, "-a", "googlebot", "--no-color", "--sitemap", "--verbose"]);
+    expect(out).toContain("Missing pages return 404.");
+  }, 30_000);
 
   it("lists the crawlers it knows", async () => {
     const { code, out } = await run(["--list-agents", "--no-color"]);
