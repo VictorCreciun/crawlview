@@ -1,26 +1,52 @@
 {
   "name": "crawlview",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "See what search engines and AI crawlers actually store for your pages — not what your browser shows you.",
   "keywords": [
-    "seo", "crawler", "googlebot", "gptbot", "claudebot", "perplexitybot",
-    "prerender", "ssr", "structured-data", "json-ld", "hreflang", "robots-txt",
-    "technical-seo", "llm", "cli"
+    "seo",
+    "crawler",
+    "googlebot",
+    "gptbot",
+    "claudebot",
+    "perplexitybot",
+    "prerender",
+    "ssr",
+    "structured-data",
+    "json-ld",
+    "hreflang",
+    "robots-txt",
+    "technical-seo",
+    "llm",
+    "cli"
   ],
   "homepage": "https://coresmith.dev/tools/crawlview",
   "bugs": "https://github.com/VictorCreciun/crawlview/issues",
-  "repository": { "type": "git", "url": "git+https://github.com/VictorCreciun/crawlview.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VictorCreciun/crawlview.git"
+  },
   "license": "MIT",
   "author": "coresmith.dev <services@coresmith.dev> (https://coresmith.dev)",
   "type": "module",
-  "engines": { "node": ">=20" },
-  "bin": { "crawlview": "dist/cli.js" },
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "crawlview": "dist/cli.js"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
@@ -38,7 +64,9 @@
     "playwright": ">=1.40.0"
   },
   "peerDependenciesMeta": {
-    "playwright": { "optional": true }
+    "playwright": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

@@ -3,8 +3,11 @@ import { capture, fetchText, pool } from "../fetch.js";
 import { parseHtml } from "../extract/html.js";
 import { evaluate, parseRobots, robotsUrl } from "../robots.js";
 import { finding } from "../checks/util.js";
+import { checkBasics } from "../checks/basics.js";
+import { checkStructured } from "../checks/structured.js";
+import { checkAi } from "../checks/ai.js";
 import { candidateSitemaps, loadSitemap, type SitemapEntry } from "./sitemap.js";
-import type { Finding, RunOptions, SiteReport } from "../types.js";
+import type { Finding, PageReport, RunOptions, SiteReport } from "../types.js";
 
 export interface SiteOptions extends RunOptions {
   limit: number;
@@ -23,6 +26,7 @@ interface PageRow {
   noindex: boolean;
   links: string[];
   bodyHash: string;
+  findings: Finding[];
 }
 
 /** A cheap shape signature: normalised word count plus title. Two URLs with
@@ -91,11 +95,29 @@ export async function crawlSite(opts: SiteOptions): Promise<{ site: SiteReport; 
     const cap = await capture({ url, ua: agent.ua, agentId: agent.id }, opts);
     if (cap.error || !cap.html) {
       return { url, status: cap.error ? null : cap.status, wordCount: null, title: null,
-               description: null, canonical: null, noindex: false, links: [], bodyHash: "" };
+               description: null, canonical: null, noindex: false, links: [], bodyHash: "",
+               findings: [] };
     }
     const facts = parseHtml(cap.html, cap.finalUrl);
     const headerRobots = Object.entries(cap.headers)
       .filter(([k]) => k.toLowerCase() === "x-robots-tag").map(([, v]) => v).join(" ");
+
+    /* The page-level checks, on every page rather than only the one named on
+       the command line. The HTML is already here, so this costs nothing but
+       CPU. The two checks that make their own requests — hreflang reciprocity
+       and the 404 probe — are deliberately left out: they would turn a
+       200-page site into a thousand requests. */
+    const asReport: PageReport = {
+      url, startedAt: new Date().toISOString(), elapsedMs: 0,
+      agents: [{ agent, capture: cap, facts, robots: null }],
+      browser: null, findings: [], robotsTxt: null, llmsTxt: null,
+    };
+    const pageFindings = [
+      ...checkBasics(asReport),
+      ...checkStructured(asReport),
+      ...checkAi(asReport),
+    ].filter((f) => f.severity === "error" || f.severity === "warn");
+
     return {
       url,
       status: cap.status,
@@ -107,8 +129,30 @@ export async function crawlSite(opts: SiteOptions): Promise<{ site: SiteReport; 
                facts.metaRobots.some((m) => /\bnoindex\b|\bnone\b/i.test(m.content)),
       links: facts.links.filter((l) => l.internal && l.absolute).map((l) => l.absolute!),
       bodyHash: shapeOf(facts.title, facts.wordCount),
+      findings: pageFindings,
     };
   });
+
+  /* One line per distinct problem, not one per page. A 200-page shop with the
+     same missing description everywhere is one fix, and printing it 200 times
+     buries the problems that are genuinely on their own. */
+  const byCode = new Map<string, { finding: Finding; urls: string[] }>();
+  for (const row of rows) {
+    for (const item of row.findings) {
+      const seen = byCode.get(item.code);
+      if (seen) seen.urls.push(row.url);
+      else byCode.set(item.code, { finding: item, urls: [row.url] });
+    }
+  }
+  for (const { finding: item, urls } of [...byCode.values()].sort((a, b) => b.urls.length - a.urls.length)) {
+    const many = urls.length > 1;
+    findings.push({
+      ...item,
+      code: `page:${item.code}`,
+      title: many ? `${urls.length} pages — ${item.title}` : `1 page — ${item.title}`,
+      evidence: urls.slice(0, 5),
+    });
+  }
 
   // --- What the sitemap promises against what the server delivers -------------
   const broken = rows.filter((r) => r.status !== null && (r.status >= 400 || r.status === 0));
@@ -227,7 +271,7 @@ export async function crawlSite(opts: SiteOptions): Promise<{ site: SiteReport; 
     sitemapUrl,
     urls: targets,
     checked: rows.length,
-    pages: rows.map((r) => ({ url: r.url, findings: [], wordCount: r.wordCount, status: r.status })),
+    pages: rows.map((r) => ({ url: r.url, findings: r.findings, wordCount: r.wordCount, status: r.status })),
     findings,
   };
 

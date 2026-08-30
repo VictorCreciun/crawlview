@@ -87,6 +87,7 @@ starts instantly; the browser comparison is opt-in (see below).
 - `/llms.txt`
 
 **Site-wide** (`--sitemap`)
+- Every page-level check above, run on every page rather than only the one you named, and reported one line per distinct problem with example URLs — a shop missing the same description on 200 pages is one fix, not 200 findings
 - Sitemap URLs that 404, redirect, are `noindex`, or are disallowed in robots.txt
 - Pages that canonicalise somewhere other than themselves
 - Orphans: in the sitemap, linked from nowhere
