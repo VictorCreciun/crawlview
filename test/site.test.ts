@@ -138,3 +138,177 @@ describe("crawlSite", () => {
     expect(requests.filter((u) => PAGES.includes(u))).toHaveLength(2);
   }, 20_000);
 });
+
+/**
+ * The sitemap-level checks.
+ *
+ * Fifteen of them in 307 lines, and until now exactly one had a mutation
+ * behind it. Each case here is a shape a real site takes: a stale entry, a
+ * page that redirects, a noindex left on, a template producing the same title
+ * everywhere, a page nothing links to.
+ */
+describe("sitemap findings", () => {
+  let sut: Server;
+  let base = "";
+
+  /** What the server should be for a given test. */
+  let plan: {
+    urls: string[];
+    status?: Record<string, number>;
+    redirect?: Record<string, string>;
+    noindex?: string[];
+    title?: (url: string) => string;
+    canonical?: (url: string) => string;
+    links?: (url: string) => string[];
+    lastmod?: string | null;
+    offsite?: string[];
+    duplicateEntries?: boolean;
+    noH1?: boolean;
+  } = { urls: [] };
+
+  beforeAll(async () => {
+    sut = createServer((req, res) => {
+      const url = req.url ?? "/";
+
+      if (url === "/robots.txt") {
+        res.writeHead(200, { "content-type": "text/plain" });
+        res.end(`User-agent: *\nAllow: /\nSitemap: ${base}/sitemap.xml\n`);
+        return;
+      }
+      if (url === "/sitemap.xml") {
+        const listed = [
+          ...plan.urls.map((u) => `${base}${u}`),
+          ...(plan.offsite ?? []),
+          ...(plan.duplicateEntries ? plan.urls.map((u) => `${base}${u}`) : []),
+        ];
+        res.writeHead(200, { "content-type": "application/xml" });
+        res.end(`<?xml version="1.0"?><urlset>${listed.map((loc, i) =>
+          `<url><loc>${loc}</loc>${
+            plan.lastmod === null ? "" : `<lastmod>${plan.lastmod ?? `2026-01-${String((i % 28) + 1).padStart(2, "0")}`}</lastmod>`
+          }</url>`).join("")}</urlset>`);
+        return;
+      }
+
+      const to = plan.redirect?.[url];
+      if (to) {
+        res.writeHead(301, { location: to }).end();
+        return;
+      }
+      const status = plan.status?.[url] ?? (plan.urls.includes(url) ? 200 : 404);
+      if (status !== 200) {
+        res.writeHead(status, { "content-type": "text/html" }).end("<html><body>no</body></html>");
+        return;
+      }
+
+      const title = plan.title ? plan.title(url) : `Page ${url}`;
+      const canonical = plan.canonical ? plan.canonical(url) : `${base}${url}`;
+      const links = plan.links ? plan.links(url) : plan.urls;
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(`<html lang="en"><head><title>${title}</title>
+        <meta name="description" content="${title} — the description a template would produce.">
+        <link rel="canonical" href="${canonical}">
+        ${plan.noindex?.includes(url) ? '<meta name="robots" content="noindex">' : ""}
+        </head><body><main>${plan.noH1 ? "" : `<h1>${title}</h1>`}
+        <p>${"Readable body copy that a person can actually read. ".repeat(15)}</p>
+        ${links.map((l) => `<a href="${l}">${l}</a>`).join("")}
+        </main></body></html>`);
+    });
+    await new Promise<void>((resolve) => sut.listen(0, "127.0.0.1", resolve));
+    const address = sut.address();
+    base = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
+  });
+
+  afterAll(() => new Promise<void>((resolve) => sut.close(() => resolve())));
+
+  const run = async () => {
+    const { findings } = await crawlSite({
+      ...DEFAULT_OPTIONS, url: `${base}/`, agents: ["googlebot"], limit: 50,
+      sitemapUrl: null, agentId: "googlebot", ignoreCrawlDelay: true, timeoutMs: 5000,
+    });
+    return findings.map((f) => f.code);
+  };
+
+  it("reports a sitemap entry that no longer exists", async () => {
+    plan = { urls: ["/", "/a"], status: { "/a": 404 } };
+    expect(await run()).toContain("sitemap-broken");
+  }, 20_000);
+
+  it("reports a sitemap entry that redirects", async () => {
+    plan = { urls: ["/", "/old"], redirect: { "/old": "/" } };
+    expect(await run()).toContain("sitemap-redirects");
+  }, 20_000);
+
+  it("reports a listed page that tells crawlers not to index it", async () => {
+    plan = { urls: ["/", "/hidden"], noindex: ["/hidden"] };
+    expect(await run()).toContain("sitemap-noindex");
+  }, 20_000);
+
+  it("reports a page that canonicalises somewhere else", async () => {
+    plan = { urls: ["/", "/dup"], canonical: (u) => `${base}${u === "/dup" ? "/" : u}` };
+    expect(await run()).toContain("sitemap-canonical-mismatch");
+  }, 20_000);
+
+  it("reports a title used by more than one page", async () => {
+    plan = { urls: ["/", "/a", "/b"], title: () => "Welcome" };
+    const found = await run();
+    expect(found).toContain("duplicate-titles");
+    expect(found).toContain("duplicate-descriptions");
+  }, 20_000);
+
+  it("reports pages nothing links to", async () => {
+    plan = { urls: ["/", "/orphan"], links: () => ["/"] };
+    expect(await run()).toContain("orphan-pages");
+  }, 20_000);
+
+  it("reports a sitemap entry on another host without fetching it", async () => {
+    plan = { urls: ["/"], offsite: ["https://elsewhere.example/page"] };
+    const { site, findings } = await crawlSite({
+      ...DEFAULT_OPTIONS, url: `${base}/`, agents: ["googlebot"], limit: 50,
+      sitemapUrl: null, agentId: "googlebot", ignoreCrawlDelay: true, timeoutMs: 5000,
+    });
+    expect(findings.map((f) => f.code)).toContain("sitemap-offsite");
+    // Reported, not requested: nobody asked this tool to touch another domain
+    // because an address turned up in somebody else's file.
+    expect(site.urls).not.toContain("https://elsewhere.example/page");
+    expect(site.urls).toEqual([`${base}/`]);
+  }, 20_000);
+
+  it("runs the page-level checks on every page in the crawl", async () => {
+    plan = { urls: ["/", "/a"], noH1: true };
+    const found = await run();
+    // The heading check belongs to the single-page pass. Seeing it here proves
+    // that pass runs for each crawled page rather than only the named one.
+    expect(found).toContain("page:h1-missing");
+    expect(found.find((c) => c === "page:h1-missing")).toBeDefined();
+  }, 20_000);
+
+  it("reports the same URL listed twice", async () => {
+    plan = { urls: ["/", "/a"], duplicateEntries: true };
+    expect(await run()).toContain("sitemap-duplicates");
+  }, 20_000);
+
+  it("notes a lastmod that is identical everywhere", async () => {
+    plan = { urls: ["/", "/a", "/b", "/c", "/d", "/e"], lastmod: "2026-08-30" };
+    expect(await run()).toContain("sitemap-lastmod-uniform");
+  }, 20_000);
+
+  it("reports several routes that are secretly the same page", async () => {
+    plan = { urls: ["/", "/a", "/b", "/c"], title: () => "Same" };
+    expect(await run()).toContain("pages-identical");
+  }, 20_000);
+
+  it("reports a page linked internally but absent from the sitemap", async () => {
+    plan = { urls: ["/"], links: () => ["/", "/unlisted"] };
+    expect(await run()).toContain("missing-from-sitemap");
+  }, 20_000);
+
+  it("stays quiet on a site with none of these problems", async () => {
+    plan = { urls: ["/", "/a", "/b"] };
+    const found = await run();
+    for (const code of ["sitemap-broken", "sitemap-redirects", "sitemap-noindex",
+                        "sitemap-canonical-mismatch", "duplicate-titles", "orphan-pages",
+                        "sitemap-offsite", "sitemap-duplicates", "pages-identical"]) {
+      expect(found).not.toContain(code);
+    }
+  }, 20_000);
+});

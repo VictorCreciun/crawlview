@@ -40,6 +40,18 @@ const MUTATIONS = [
     from: "wildcard.rules\n    .filter((r) => !r.allow && !own.has(r.pattern))",
     to: "wildcard.rules\n    .filter((r) => r.allow && !own.has(r.pattern))" },
 
+  // --- agents ---------------------------------------------------------------
+  /* types.ts and index.ts carry no logic — declarations and re-exports — so a
+     zero there is correct rather than a gap. */
+  { id: "agents/group-expansion", file: "src/agents.ts",
+    from: "    if (group) {\n      ids.push(...group);\n      continue;\n    }", to: "" },
+  { id: "agents/dedupe", file: "src/agents.ts",
+    from: "    if (seen.has(id)) continue;", to: "" },
+  { id: "agents/unknown", file: "src/agents.ts",
+    from: "    unknown.push(raw);", to: "" },
+  { id: "agents/robots-tokens", file: "src/agents.ts",
+    from: '    robotsTokens: ["ClaudeBot", "anthropic-ai"],', to: '    robotsTokens: ["ClaudeBot"],' },
+
   // --- text extraction ------------------------------------------------------
   { id: "text/buttons-stripped", file: "src/extract/text.ts",
     from: '  work.find(STRIP.join(",")).remove();\n  const body = work.find("body");',
@@ -127,9 +139,8 @@ const MUTATIONS = [
     from: "if (to - from > 1) jumps.push(`h${from} → h${to}`);", to: "" },
 
   // --- divergence -----------------------------------------------------------
-  { id: "divergence/starved-threshold", file: "src/checks/divergence.ts",
-    from: "return browserWords >= 50 && pct(words, browserWords) < 30;",
-    to: "return browserWords >= 50 && pct(words, browserWords) < 0;" },
+  /* The starvation thresholds moved into checks/util.ts, where both reports
+     read them too. See the util/ mutations. */
   { id: "divergence/status", file: "src/checks/divergence.ts",
     from: "if (byStatus.size > 1) {", to: "if (false) {" },
   { id: "divergence/links-invisible", file: "src/checks/divergence.ts",
@@ -189,6 +200,142 @@ const MUTATIONS = [
   { id: "run/severity-order", file: "src/run.ts",
     from: 'const ORDER: Record<string, number> = { error: 0, warn: 1, info: 2, ok: 3 };',
     to: 'const ORDER: Record<string, number> = { error: 3, warn: 2, info: 1, ok: 0 };' },
+
+  // --- language -------------------------------------------------------------
+  { id: "checks-lang/mismatch", file: "src/checks/language.ts",
+    from: "if (declared !== detected && !confusable(declared, detected)) {", to: "if (false) {" },
+  { id: "checks-lang/word-floor", file: "src/checks/language.ts",
+    from: "if (declared && detected && facts.wordCount >= 40) {", to: "if (false) {" },
+  { id: "checks-lang/missing-tag", file: "src/checks/language.ts",
+    from: "if (!facts.htmlLang) {", to: "if (false) {" },
+  { id: "checks-lang/path-mismatch", file: "src/checks/language.ts",
+    from: "if (fromPath && declared && fromPath !== declared && !confusable(fromPath, declared)) {",
+    to: "if (false) {" },
+  { id: "checks-lang/hreflang-self", file: "src/checks/language.ts",
+    from: "if (!hasSelf) {", to: "if (false) {" },
+  { id: "checks-lang/hreflang-duplicate", file: "src/checks/language.ts",
+    from: "if (duplicates.length) {", to: "if (false) {" },
+  { id: "checks-lang/hreflang-invalid", file: "src/checks/language.ts",
+    from: "if (invalid.length) {", to: "if (false) {" },
+  { id: "checks-lang/hreflang-xdefault", file: "src/checks/language.ts",
+    from: 'if (!tags.includes("x-default")) {', to: "if (false) {" },
+  { id: "checks-lang/reciprocity", file: "src/checks/language.ts",
+    from: "const oneWay = fetchedAlternates.filter((r) => r.ok && !r.back.includes(selfUrl));",
+    to: "const oneWay = fetchedAlternates.filter(() => false);" },
+  { id: "checks-lang/unreachable", file: "src/checks/language.ts",
+    from: "const broken = fetchedAlternates.filter((r) => !r.ok);",
+    to: "const broken = fetchedAlternates.filter(() => false);" },
+
+  // --- robots policy --------------------------------------------------------
+  { id: "robotspolicy/search-severity", file: "src/checks/robotspolicy.ts",
+    from: 'out.push(finding("robots-blocks-search", "error",', to: 'out.push(finding("robots-blocks-search", "info",' },
+  { id: "robotspolicy/ai-severity", file: "src/checks/robotspolicy.ts",
+    from: 'out.push(finding("robots-blocks-ai", "warn",', to: 'out.push(finding("robots-blocks-ai", "error",' },
+  { id: "robotspolicy/server-error", file: "src/checks/robotspolicy.ts",
+    from: "} else if (robots.status >= 500) {", to: "} else if (false) {" },
+  { id: "robotspolicy/unreachable", file: "src/checks/robotspolicy.ts",
+    from: "if (!robots || robots.status === 0) {", to: "if (!robots) {" },
+  { id: "robotspolicy/overrides-report", file: "src/checks/robotspolicy.ts",
+    from: "if (!dropped.length) continue;", to: "continue;" },
+  { id: "robotspolicy/malformed-report", file: "src/checks/robotspolicy.ts",
+    from: "if (malformed.length) {", to: "if (false) {" },
+  { id: "robotspolicy/no-sitemap", file: "src/checks/robotspolicy.ts",
+    from: "if (!sitemaps.length) {", to: "if (false) {" },
+  { id: "robotspolicy/guard-status", file: "src/checks/robotspolicy.ts",
+    from: "if (!report.robotsTxt || report.robotsTxt.status !== 200) return out;", to: "" },
+
+  // --- sitemap findings -----------------------------------------------------
+  { id: "site/broken", file: "src/site/crawl.ts",
+    from: "const broken = rows.filter((r) => r.status !== null && (r.status >= 400 || r.status === 0));",
+    to: "const broken = rows.filter(() => false);" },
+  { id: "site/redirects", file: "src/site/crawl.ts",
+    from: "const redirected = rows.filter((r) => r.redirectedFrom);",
+    to: "const redirected = rows.filter(() => false);" },
+  { id: "site/noindex", file: "src/site/crawl.ts",
+    from: "const noindexed = rows.filter((r) => r.noindex);",
+    to: "const noindexed = rows.filter(() => false);" },
+  { id: "site/canonical-mismatch", file: "src/site/crawl.ts",
+    from: "if (notSelfCanonical.length) {", to: "if (false) {" },
+  { id: "site/duplicate-titles", file: "src/site/crawl.ts",
+    from: "if (dupTitles.length) {", to: "if (false) {" },
+  { id: "site/duplicate-descriptions", file: "src/site/crawl.ts",
+    from: "if (dupDesc.length) {", to: "if (false) {" },
+  { id: "site/orphans", file: "src/site/crawl.ts",
+    from: "if (orphans.length) {", to: "if (false) {" },
+  { id: "site/offsite", file: "src/site/crawl.ts",
+    from: "if (offsite.length) {", to: "if (false) {" },
+  { id: "site/duplicates", file: "src/site/crawl.ts",
+    from: "if (duplicates.length) {", to: "if (false) {" },
+  { id: "site/lastmod-uniform", file: "src/site/crawl.ts",
+    from: "if (identicalLastmod.size === 1 && entries.length > 5) {", to: "if (false) {" },
+  { id: "site/identical-pages", file: "src/site/crawl.ts",
+    from: "const identical = [...shapes.values()].filter((urls) => urls.length > 2);",
+    to: "const identical = [];" },
+  { id: "site/missing-from-sitemap", file: "src/site/crawl.ts",
+    from: "if (missing.length) {", to: "if (false) {" },
+  { id: "site/same-origin", file: "src/site/crawl.ts",
+    from: "    .filter((l) => { try { return new URL(l).origin === origin; } catch { return false; } })", to: "" },
+  { id: "site/no-sitemap", file: "src/site/crawl.ts",
+    from: "if (!entries.length) {", to: "if (false) {" },
+  { id: "site/limit", file: "src/site/crawl.ts",
+    from: ".slice(0, opts.limit);", to: ".slice(0);" },
+  { id: "site/per-page-checks", file: "src/site/crawl.ts",
+    from: "    const pageFindings = [\n      ...checkBasics(asReport),",
+    to: "    const pageFindings = [\n      ...[] as Finding[], ...(false ? checkBasics(asReport) : [])," },
+
+  // --- render ---------------------------------------------------------------
+  /* Only the flag is mutated, not the discovery. Breaking findChrome makes the
+     browser suite skip rather than fail, and a skipped test passes — so a
+     mutation there would survive while proving nothing. Discovery is exercised
+     by the render tests; it is not mutation-verified, and saying otherwise
+     would be the same mistake as the colour test. */
+  { id: "render/flag", file: "src/run.ts",
+    from: "  if (opts.render) {", to: "  if (false) {" },
+  { id: "render/browser-facts", file: "src/run.ts",
+    from: "      else browser = { capture: cap, facts: parseHtml(cap.html, cap.finalUrl) };",
+    to: "      else browser = null;" },
+
+  // --- cli ------------------------------------------------------------------
+  { id: "cli/negation", file: "src/cli.ts",
+    from: "if (match && NEGATABLE.has(match[1]!)) negated.add(match[1]!);\n    else args.push(arg);",
+    to: "args.push(arg);" },
+  { id: "cli/negation-color", file: "src/cli.ts",
+    from: 'const color = !negated.has("color") && values.color !== false && !process.env.NO_COLOR;',
+    to: "const color = values.color !== false && !process.env.NO_COLOR;" },
+  { id: "cli/ci-gate", file: "src/cli.ts",
+    from: "  if (!values.ci) return 0;", to: "  if (values.ci) return 0;" },
+  { id: "cli/fail-on", file: "src/cli.ts",
+    from: 'f.severity === "error" || (failOn === "warn" && f.severity === "warn"));',
+    to: 'f.severity === "error");' },
+  { id: "cli/fail-on-validation", file: "src/cli.ts",
+    from: 'if (failOn !== "error" && failOn !== "warn") {', to: "if (false) {" },
+  { id: "cli/ignore-flag", file: "src/cli.ts",
+    from: "    ...(values.ignore ? values.ignore.split(\",\") : []),", to: "" },
+  { id: "cli/config-agents", file: "src/cli.ts",
+    from: 'agents: values.agents ? values.agents.split(",") : config.agents ?? ["default"],',
+    to: 'agents: values.agents ? values.agents.split(",") : ["default"],' },
+  { id: "cli/direct-invocation", file: "src/cli.ts",
+    from: "    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));",
+    to: "    return /crawlview/.test(entry);" },
+  { id: "cli/version", file: "src/cli.ts",
+    from: "  if (values.version) {", to: "  if (false) {" },
+  { id: "cli/list-agents", file: "src/cli.ts",
+    from: '  if (values["list-agents"]) {', to: "  if (false) {" },
+  { id: "cli/json-only", file: "src/cli.ts",
+    from: "    wroteStdout = true;", to: "    wroteStdout = false;" },
+  { id: "cli/suppressed-count", file: "src/cli.ts",
+    from: "    if (ignored.length) {", to: "    if (false) {" },
+
+  // --- util -----------------------------------------------------------------
+  { id: "util/starved-share", file: "src/checks/util.ts",
+    from: "export const STARVED_SHARE = 0.3;", to: "export const STARVED_SHARE = 0.0;" },
+  { id: "util/meaningful-words", file: "src/checks/util.ts",
+    from: "export const MEANINGFUL_WORDS = 50;", to: "export const MEANINGFUL_WORDS = 100000;" },
+  { id: "util/starved", file: "src/checks/util.ts",
+    from: "return reference >= MEANINGFUL_WORDS && wordCount < reference * STARVED_SHARE;",
+    to: "return false;" },
+  { id: "util/pct", file: "src/checks/util.ts",
+    from: "return Math.round((part / whole) * 100);", to: "return 100;" },
 
   // --- reports --------------------------------------------------------------
   { id: "report/html-escape", file: "src/report/html.ts",
@@ -257,5 +404,10 @@ console.log(`\n  ${applied.length - survived.length}/${applied.length} mutations
 if (survived.length) {
   console.log("\n  Untested behaviour:");
   for (const id of survived) console.log(`    ${id}`);
-  process.exit(1);
 }
+
+/* A stale mutation is a silent loss of coverage: the code it named has moved
+   or gone, so it runs nothing and reports nothing, and the total still reads
+   as a full pass. Refactoring quietly erodes the harness that way, which is
+   how a check ends up guarded by a mutation that has not applied in months. */
+if (survived.length || notFound) process.exit(1);

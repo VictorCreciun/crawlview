@@ -1,5 +1,5 @@
 import type { Finding, PageReport } from "../types.js";
-import { fetched, finding, pct, truncate, unique } from "./util.js";
+import { MEANINGFUL_WORDS, fetched, finding, pct, starved as isStarved, truncate, unique } from "./util.js";
 
 /** The question the whole tool exists to answer: does what a machine stores
  *  match what a person sees, and do all machines get the same answer. */
@@ -61,12 +61,9 @@ export function checkDivergence(report: PageReport): Finding[] {
   const browser = report.browser;
   if (browser) {
     const browserWords = browser.facts.wordCount;
-    const starved = results.filter((r) => {
-      const words = r.facts!.wordCount;
-      return browserWords >= 50 && pct(words, browserWords) < 30;
-    });
+    const starved = results.filter((r) => isStarved(r.facts!.wordCount, browserWords));
 
-    if (starved.length === results.length && results.length > 0 && browserWords >= 50) {
+    if (starved.length === results.length && results.length > 0 && browserWords >= MEANINGFUL_WORDS) {
       const most = Math.max(...starved.map((s) => s.facts!.wordCount));
       const stored = most === 0 ? "every crawler stores none of it" : `no crawler stores more than ${most}`;
       out.push(finding("content-invisible", "error",
@@ -79,7 +76,7 @@ export function checkDivergence(report: PageReport): Finding[] {
         { detail: "The crawlers that run JavaScript get the content; the ones that do not are left with the shell. That split is the difference between ranking in search and being absent from AI answers.",
           agents: starved.map((s) => s.agent.id),
           evidence: starved.map((s) => `${s.agent.label}: ${s.facts!.wordCount} words vs ${browserWords} in the browser`) }));
-    } else if (browserWords >= 50) {
+    } else if (browserWords >= MEANINGFUL_WORDS) {
       const worst = results.reduce((acc, r) => Math.min(acc, pct(r.facts!.wordCount, browserWords)), 100);
       if (worst < 80) {
         out.push(finding("content-reduced", "warn",

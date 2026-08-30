@@ -1,4 +1,5 @@
 import type { PageReport, Severity } from "../types.js";
+import { starved as isStarved } from "../checks/util.js";
 
 const LABEL: Record<Severity, string> = {
   error: "Problems", warn: "Worth fixing", info: "Notes", ok: "Passing",
@@ -99,7 +100,7 @@ export function toHtml(report: PageReport, options: HtmlOptions): string {
       : cap ? `<span class="${cap.status < 300 ? "g" : cap.status < 400 ? "y" : "r"}">${cap.status}</span>`
       : `<span class="d">—</span>`;
     const wordCount = facts?.wordCount ?? null;
-    const starved = wordCount !== null && reference >= 50 && wordCount < reference * 0.3;
+    const starved = wordCount !== null && isStarved(wordCount, reference);
     const h1 = facts ? facts.headings.filter((h) => h.level === 1).length : null;
 
     body.push(`<tr>

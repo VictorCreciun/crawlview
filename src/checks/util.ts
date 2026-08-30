@@ -16,19 +16,22 @@ export function fetched(report: PageReport): AgentResult[] {
   return report.agents.filter((a) => a.capture && !a.capture.error && a.facts);
 }
 
-/** The reference view a human gets: the rendered browser when --render ran,
- *  otherwise the richest bot response we have. */
-export function reference(report: PageReport): { wordCount: number; source: string } | null {
-  if (report.browser) {
-    return { wordCount: report.browser.facts.wordCount, source: "browser" };
-  }
-  const results = fetched(report);
-  if (!results.length) return null;
-  let best = results[0]!;
-  for (const r of results) {
-    if ((r.facts?.wordCount ?? 0) > (best.facts?.wordCount ?? 0)) best = r;
-  }
-  return { wordCount: best.facts!.wordCount, source: best.agent.label };
+/** Below this, a page is too thin for a comparison to mean anything: half a
+ *  dozen words missing out of twenty proves nothing about rendering. */
+export const MEANINGFUL_WORDS = 50;
+
+/** A crawler holding less than this share of the reference text is not simply
+ *  seeing a trimmed page — it is seeing a different one. */
+export const STARVED_SHARE = 0.3;
+
+/** Is this crawler's view starved next to the reference?
+ *
+ *  It lived inline in three places — the divergence check, the terminal table
+ *  and the HTML table — each with its own copy of both numbers. The report
+ *  painting a cell red and the check calling it a problem are the same claim,
+ *  and they had no shared definition to drift from. */
+export function starved(wordCount: number, reference: number): boolean {
+  return reference >= MEANINGFUL_WORDS && wordCount < reference * STARVED_SHARE;
 }
 
 export function pct(part: number, whole: number): number {

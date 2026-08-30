@@ -1,5 +1,6 @@
 import pc from "picocolors";
 import type { AgentResult, Finding, PageReport, Severity } from "../types.js";
+import { starved as isStarved } from "../checks/util.js";
 
 /* picocolors decides at import time whether the terminal wants colour, and
    `createColors(false)` returns a NEW object rather than switching the module
@@ -128,7 +129,7 @@ export function renderTerminal(report: PageReport, opts: { color: boolean; verbo
       push(size, bytes(result.capture.bytes), ink.dim(bytes(result.capture.bytes)));
 
       const w = words(facts.wordCount);
-      const starved = reference >= 50 && facts.wordCount < reference * 0.3;
+      const starved = isStarved(facts.wordCount, reference);
       push(text, w, starved ? ink.red(w) : ink.reset(w));
 
       const t = yes(!!facts.title); push(title, t.raw, t.painted);

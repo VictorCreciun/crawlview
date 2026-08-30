@@ -29,6 +29,11 @@ interface PageRow {
   links: string[];
   bodyHash: string;
   findings: Finding[];
+  /** The redirect chain, if any. Kept separately because `status` holds the
+   *  status of the page we ended on: the crawler follows redirects, so a URL
+   *  that redirects reports 200 and the hops are the only trace left. Reading
+   *  the redirect check off `status` meant it could never fire at all. */
+  redirectedFrom: string | null;
 }
 
 /** A cheap shape signature: normalised word count plus title. Two URLs with
@@ -90,7 +95,13 @@ export async function crawlSite(opts: SiteOptions): Promise<{ site: SiteReport; 
         evidence: [`all ${entries.length} entries: ${[...identicalLastmod][0]}`] }));
   }
 
-  const targets = [...new Set(locs)].slice(0, opts.limit);
+  /* Same host only. A sitemap may not list another origin and search engines
+     ignore the ones that do, so fetching them buys nothing — and sends a
+     request to a third party because their address happened to appear in
+     somebody else's file. They are still reported above. */
+  const targets = [...new Set(locs)]
+    .filter((l) => { try { return new URL(l).origin === origin; } catch { return false; } })
+    .slice(0, opts.limit);
   const agent = agentById(opts.agentId) ?? agentById("googlebot-mobile")!;
 
   /* A site that asks for a crawl-delay gets one. The tool sends real crawler
@@ -118,7 +129,7 @@ export async function crawlSite(opts: SiteOptions): Promise<{ site: SiteReport; 
     if (cap.error || !cap.html) {
       return { url, status: cap.error ? null : cap.status, wordCount: null, title: null,
                description: null, canonical: null, noindex: false, links: [], bodyHash: "",
-               findings: [] };
+               findings: [], redirectedFrom: null };
     }
     const facts = parseHtml(cap.html, cap.finalUrl);
     const headerRobots = Object.entries(cap.headers)
@@ -152,6 +163,7 @@ export async function crawlSite(opts: SiteOptions): Promise<{ site: SiteReport; 
       links: facts.links.filter((l) => l.internal && l.absolute).map((l) => l.absolute!),
       bodyHash: shapeOf(facts.title, facts.wordCount),
       findings: pageFindings,
+      redirectedFrom: cap.redirects.length ? `${cap.redirects[0]!.status} → ${cap.finalUrl}` : null,
     };
   });
 
@@ -184,12 +196,12 @@ export async function crawlSite(opts: SiteOptions): Promise<{ site: SiteReport; 
       { evidence: broken.slice(0, 6).map((r) => `${r.status} ${r.url}`) }));
   }
 
-  const redirected = rows.filter((r) => r.status !== null && r.status >= 300 && r.status < 400);
+  const redirected = rows.filter((r) => r.redirectedFrom);
   if (redirected.length) {
     findings.push(finding("sitemap-redirects", "warn",
       `${redirected.length} sitemap URL${redirected.length === 1 ? "" : "s"} redirect.`,
       { detail: "A sitemap should list final addresses. Every redirect here is a page the crawler was told to visit and then sent away from.",
-        evidence: redirected.slice(0, 5).map((r) => `${r.status} ${r.url}`) }));
+        evidence: redirected.slice(0, 5).map((r) => `${r.url} — ${r.redirectedFrom}`) }));
   }
 
   const noindexed = rows.filter((r) => r.noindex);

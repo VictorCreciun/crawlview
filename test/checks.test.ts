@@ -196,6 +196,19 @@ describe("checkDivergence", () => {
     expect(found).not.toContain("content-invisible");
   });
 
+  it("reports a page that is partly, not wholly, invisible", () => {
+    /* The middle case: the crawler gets real content, just less of it. Neither
+       "identical" nor "empty" — and the only finding whose wording depends on
+       the percentage rather than on a yes or no. */
+    const trimmed = page(`<main><h1>H</h1><p>${"Half the sentences survive. ".repeat(9)}</p></main>`);
+    const whole = page(`<main><h1>H</h1><p>${"Half the sentences survive. ".repeat(30)}</p></main>`);
+    const found = checkDivergence(report([agentResult("googlebot", trimmed)], whole));
+    expect(codes(found)).toContain("content-reduced");
+    expect(codes(found)).not.toContain("content-invisible");
+    expect(codes(found)).not.toContain("content-match");
+    expect(found.find((f) => f.code === "content-reduced")!.title).toMatch(/\d+% of the browser/);
+  });
+
   it("calls out a status that differs between crawlers", () => {
     const found = codes(checkDivergence(report([
       agentResult("googlebot", full),

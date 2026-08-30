@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import path from "node:path";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import pc from "picocolors";
@@ -101,11 +103,32 @@ function normaliseUrl(input: string): string {
   }
 }
 
+/* Flags that read as `--no-x`. Node's parseArgs has no notion of negation: it
+   sees an unknown option and throws, so `--no-color` and `--no-crawl-delay`
+   both failed with "Unknown option" while being documented in the help text
+   and the README. They are lifted out of the arguments here and turned into
+   plain false values. */
+const NEGATABLE = new Set(["color", "crawl-delay"]);
+
+function liftNegations(argv: string[]): { args: string[]; negated: Set<string> } {
+  const negated = new Set<string>();
+  const args: string[] = [];
+  let passthrough = false;
+  for (const arg of argv) {
+    if (arg === "--") passthrough = true;
+    const match = passthrough ? null : /^--no-([a-z][a-z-]*)$/.exec(arg);
+    if (match && NEGATABLE.has(match[1]!)) negated.add(match[1]!);
+    else args.push(arg);
+  }
+  return { args, negated };
+}
+
 export async function main(argv: string[]): Promise<number> {
+  const { args: cleanArgs, negated } = liftNegations(argv);
   let parsed;
   try {
     parsed = parseArgs({
-      args: argv,
+      args: cleanArgs,
       allowPositionals: true,
       options: {
         agents: { type: "string", short: "a" },
@@ -144,7 +167,7 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   const { values, positionals } = parsed;
-  const color = values.color !== false && !process.env.NO_COLOR;
+  const color = !negated.has("color") && values.color !== false && !process.env.NO_COLOR;
   const ink: Ink = color ? pc : PLAIN;
 
   if (values.version) {
@@ -236,7 +259,7 @@ export async function main(argv: string[]): Promise<number> {
       agents: options.agents ?? ["default"],
       limit: Math.max(1, number(values.limit, 50, "limit")),
       sitemapUrl: values["sitemap-url"] ?? null,
-      ignoreCrawlDelay: values["crawl-delay"] === false,
+      ignoreCrawlDelay: negated.has("crawl-delay") || values["crawl-delay"] === false,
       agentId: report.agents.find((a) => a.agent.ua)?.agent.id ?? "googlebot-mobile",
     });
     report.site = site;
@@ -310,7 +333,22 @@ export async function main(argv: string[]): Promise<number> {
   return 0;
 }
 
-const invokedDirectly = process.argv[1] && /crawlview|cli\.(js|ts)$/.test(process.argv[1]);
+/* Whether this file is the program being run, rather than a module somebody
+   imported. The previous test asked whether the entry path contained the
+   string "crawlview", which is true of every file inside a checkout of this
+   project — so importing the library from here ran the CLI, on whatever
+   arguments the host process happened to have. Comparing resolved paths is
+   the only answer that means what it says; realpath matters because npm
+   installs the binary as a symlink. */
+const invokedDirectly = (() => {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+})();
 if (invokedDirectly) {
   main(process.argv.slice(2))
     .then((code) => process.exit(code))
