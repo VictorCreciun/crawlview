@@ -1,0 +1,110 @@
+name: crawlview
+description: Check what search engines and AI crawlers actually store for a page, and fail the build when they store nothing.
+author: coresmith.dev
+branding:
+  icon: eye
+  color: gray-dark
+
+inputs:
+  url:
+    description: The URL to check.
+    required: true
+  agents:
+    description: 'Crawlers to check: ids or groups (search, ai, social, all, default).'
+    required: false
+    default: default
+  render:
+    description: Also load the page in a browser and diff the two. GitHub runners already have Chrome.
+    required: false
+    default: "true"
+  sitemap:
+    description: Walk the sitemap and check the site as a whole.
+    required: false
+    default: "false"
+  limit:
+    description: Pages to check in sitemap mode.
+    required: false
+    default: "50"
+  ci:
+    description: Exit non-zero when anything is a problem.
+    required: false
+    default: "true"
+  min-text:
+    description: Fail when a crawler sees less than this share of the browser's text.
+    required: false
+    default: "60"
+  version:
+    description: Version of crawlview to run.
+    required: false
+    default: latest
+  args:
+    description: Any further crawlview arguments, appended verbatim.
+    required: false
+    default: ""
+
+outputs:
+  errors:
+    description: Number of problems found.
+    value: ${{ steps.run.outputs.errors }}
+  warnings:
+    description: Number of warnings found.
+    value: ${{ steps.run.outputs.warnings }}
+  report:
+    description: The Markdown report, ready to post as a comment.
+    value: ${{ steps.run.outputs.report }}
+  json:
+    description: Path to the full JSON report.
+    value: ${{ steps.run.outputs.json }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        CV_URL: ${{ inputs.url }}
+        CV_AGENTS: ${{ inputs.agents }}
+        CV_RENDER: ${{ inputs.render }}
+        CV_SITEMAP: ${{ inputs.sitemap }}
+        CV_LIMIT: ${{ inputs.limit }}
+        CV_CI: ${{ inputs.ci }}
+        CV_MIN_TEXT: ${{ inputs['min-text'] }}
+        CV_VERSION: ${{ inputs.version }}
+        CV_ARGS: ${{ inputs.args }}
+      run: |
+        set -o pipefail
+        flags=(--agents "$CV_AGENTS" --md crawlview-report.md --min-text "$CV_MIN_TEXT")
+        [ "$CV_RENDER" = "true" ] && flags+=(--render)
+        [ "$CV_SITEMAP" = "true" ] && flags+=(--sitemap --limit "$CV_LIMIT")
+        [ "$CV_CI" = "true" ] && flags+=(--ci)
+        # shellcheck disable=SC2206
+        [ -n "$CV_ARGS" ] && flags+=($CV_ARGS)
+
+        # The JSON run never fails the build: its job is to produce the outputs
+        # a workflow reports with, even — especially — when the checked run fails.
+        npx --yes "crawlview@$CV_VERSION" "$CV_URL" \
+          --agents "$CV_AGENTS" --json > crawlview-report.json || true
+
+        node -e '
+          const fs = require("fs");
+          let data = { summary: { errors: 0, warnings: 0 } };
+          try { data = JSON.parse(fs.readFileSync("crawlview-report.json", "utf8")); } catch {}
+          const out = process.env.GITHUB_OUTPUT;
+          fs.appendFileSync(out, `errors=${data.summary?.errors ?? 0}\n`);
+          fs.appendFileSync(out, `warnings=${data.summary?.warnings ?? 0}\n`);
+          fs.appendFileSync(out, `json=crawlview-report.json\n`);
+        '
+
+        npx --yes "crawlview@$CV_VERSION" "$CV_URL" "${flags[@]}"
+        status=$?
+
+        if [ -f crawlview-report.md ]; then
+          {
+            echo "report<<CRAWLVIEW_EOF"
+            cat crawlview-report.md
+            echo "CRAWLVIEW_EOF"
+          } >> "$GITHUB_OUTPUT"
+          cat crawlview-report.md >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+        exit $status

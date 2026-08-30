@@ -1,0 +1,10 @@
+node_modules
+dist
+*.tsbuildinfo
+*.log
+.DS_Store
+.env
+.env.*
+coverage
+crawlview-report.html
+crawlview-snapshot.json
