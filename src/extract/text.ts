@@ -6,10 +6,18 @@ import type { AnyNode } from "domhandler";
    extractor fails, so the report tells you something true about how your page
    will be read by a machine. */
 
+/** Elements that never hold text a reader sees, whatever the question is. */
 const STRIP = [
   "script", "style", "noscript", "template", "svg", "canvas", "iframe",
-  "form", "button", "select", "textarea", "input", "video", "audio",
+  "video", "audio",
 ];
+
+/** Additionally dropped when looking for the article body: interactive chrome
+ *  is not prose. Deliberately NOT dropped from the visible text — a button
+ *  carries words a person reads, and the standard accessible accordion puts
+ *  every FAQ question inside one. Stripping them everywhere made the tool
+ *  report a visible FAQ as markup describing nothing. */
+const STRIP_INTERACTIVE = ["form", "button", "select", "textarea", "input"];
 
 /** Containers that almost never hold the article body. Removed only when a
  *  better candidate exists, so a page that is nothing but <nav> still reports
@@ -48,7 +56,7 @@ function tagOf(node: AnyNode | undefined): string {
  *  the signal that separates an article from a menu. */
 export function extractReadable($: CheerioAPI): { text: string; container: string } {
   const work = $.root().clone();
-  work.find(STRIP.join(",")).remove();
+  work.find([...STRIP, ...STRIP_INTERACTIVE].join(",")).remove();
   work.find("[hidden], [aria-hidden=true], [style*='display:none'], [style*='display: none']").remove();
 
   const explicit = work.find("main, article, [role=main]").first();

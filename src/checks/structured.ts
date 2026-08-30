@@ -110,17 +110,16 @@ function mentioned(needle: string, hay: string, hayTokens: Set<string>): boolean
   if (hay.includes(flat)) return true;
 
   const parts = tokens(needle);
+  /* Nothing identifying in it, so there is nothing to look for. This is also
+     what covers schema.org notation: a priceRange of "$$" is a band, not words,
+     and no page has ever printed it. A guard naming priceRange explicitly used
+     to sit below this function; it never changed an outcome, because a value
+     made only of symbols yields no tokens either way. */
   if (parts.length === 0) return true;
   if (parts.length === 1) return hayTokens.has(parts[0]!);
   return parts.filter((t) => hayTokens.has(t)).length / parts.length >= 0.7;
 }
 
-/** Values that are notation rather than words. schema.org's priceRange takes
- *  "$$" or "$$$$" as a band, and no page has ever printed that — flagging it
- *  reports a convention as a lie. */
-function isNotation(key: string, value: string): boolean {
-  return key === "priceRange" && !/\d/.test(value);
-}
 
 export function checkStructured(report: PageReport): Finding[] {
   const out: Finding[] = [];
@@ -199,7 +198,6 @@ export function checkStructured(report: PageReport): Finding[] {
   for (const node of nodes) {
     for (const { key, label } of CLAIMS) {
       for (const value of literals(node, key)) {
-        if (isNotation(key, value)) continue;
         if (!mentioned(value, pageText, pageTokens)) {
           unsupported.push(`${key}: "${truncate(value, 40)}" — ${label} the page never shows`);
         }

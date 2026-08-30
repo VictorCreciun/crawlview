@@ -211,6 +211,22 @@ for (const finding of report.findings) {
 Everything the CLI uses is exported: `parseRobots`, `evaluateRobots`, `parseHtml`,
 `detectLanguage`, `crawlSite`, `toHtml`, `toMarkdown`, `toJson`, `diffSnapshot`.
 
+## Tests
+
+```
+npm test              # the suite
+node scripts/mutate.mjs   # verify the suite actually tests anything
+```
+
+A green suite is not evidence on its own: a test that passes whether or not the
+code works verifies nothing. `scripts/mutate.mjs` breaks one piece of logic at a
+time — inverts a comparison, removes a guard, disables a check — and confirms
+the suite notices. A mutation that survives names a behaviour nothing tests.
+
+It found real gaps the first time it ran, including two for bugs that had just
+been fixed: the tests written alongside those fixes were asserting something
+adjacent to the thing that broke.
+
 ## A note on user agents
 
 `crawlview` sends each crawler's real user-agent string. It has to: a server
