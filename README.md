@@ -73,6 +73,7 @@ starts instantly; the browser comparison is opt-in (see below).
 **Structured data**
 - Required and recommended properties for the types Google documents
 - **Claims the page itself does not make.** Markup must describe what a visitor can see; a `priceRange` or `telephone` that appears only in the JSON-LD is what structured-data manual actions are issued for
+- **An `ItemList` longer than the page.** A listing page marks up its whole result set and then renders twelve — the difference is a set of products described to a search engine and shown to nobody
 - `AggregateRating` with no reviews anywhere on the page
 - Ratings outside their own scale, breadcrumbs numbered out of order, duplicate `@id`, blocks that do not parse
 
@@ -114,6 +115,10 @@ starts instantly; the browser comparison is opt-in (see below).
       --html <file>      Standalone HTML report
       --md <file>        Markdown, for an issue or a PR comment
 
+      --ignore <codes>   Finding codes to suppress, comma separated
+      --config <file>    Settings file (otherwise crawlview.json, if present)
+      --fail-on <level>  What --ci treats as failure: error (default) or warn
+
       --snapshot <file>  Write a baseline to compare against later
       --diff <file>      Compare this run against a baseline
       --ci               Exit non-zero when anything is a problem
@@ -125,7 +130,8 @@ starts instantly; the browser comparison is opt-in (see below).
       --cookie <string>  Cookie header, for pages behind a session
       --timeout <ms>     Per-request timeout (default: 20000)
       --concurrency <n>  Parallel requests (default: 4)
-      --delay <ms>       Pause between requests (default: 0)
+      --delay <ms>       Minimum gap between request starts (default: 0)
+      --no-crawl-delay   Ignore a crawl-delay declared in robots.txt
       --insecure         Do not verify TLS certificates
       --no-color         Plain output
 
@@ -147,6 +153,25 @@ npm install -D playwright && npx playwright install chromium
 ```
 
 `CHROME_PATH` overrides the search.
+
+### Settings
+
+A `crawlview.json` beside your code is what makes this survivable in CI. Without
+somewhere to record an accepted trade-off, one finding you have decided to live
+with makes the build permanently red and the check gets deleted a week later.
+
+```json
+{
+  "ignore": ["og-absent", "citability-weak"],
+  "agents": ["search", "ai"],
+  "failOn": "error",
+  "minText": 80
+}
+```
+
+Suppressed findings are counted and reported, never silently dropped —
+otherwise the file becomes a place to hide things. Ignoring a code covers its
+sitemap-mode form too, so `og-absent` also matches `page:og-absent`.
 
 ### Private and staging sites
 
@@ -233,9 +258,15 @@ adjacent to the thing that broke.
 decides what to send based on that exact string, and appending an identifier of
 our own would change the answer we came to measure.
 
-It is a debugging tool, not a crawler. One request per agent, `--delay` if you
-want it slower, and it never follows links to fetch pages you did not ask for —
-`--sitemap` fetches exactly what the sitemap lists, up to `--limit`.
+It is a debugging tool, not a crawler. One request per agent, and it never
+follows links to fetch pages you did not ask for — `--sitemap` fetches exactly
+what the sitemap lists, up to `--limit`.
+
+Sitemap mode obeys a `crawl-delay` declared in robots.txt, because a tool that
+sends real crawler user-agents and then fetches hundreds of pages has no
+business ignoring a limit written for that exact situation. `--delay` still
+wins when it is the slower of the two, and it spaces request *starts* globally
+rather than per worker. `--no-crawl-delay` exists for a site you own.
 
 ## Why the AI crawlers matter
 

@@ -171,9 +171,17 @@ export async function fetchText(
   }
 }
 
-/** Runs tasks with a fixed ceiling on parallelism and an optional pause between
- *  starts. Politeness is not decoration here: the tool fires one request per
- *  agent, so a careless default would hit a small site with twenty at once. */
+/** Runs tasks with a fixed ceiling on parallelism, spacing their starts by at
+ *  least `delayMs`. Politeness is not decoration here: the tool fires one
+ *  request per agent, so a careless default would hit a small site with twenty
+ *  at once.
+ *
+ *  The spacing is global, held in one clock shared by every worker. It used to
+ *  be a pause inside each worker's own loop, which with four workers and four
+ *  items meant four requests roughly together and a single delay between the
+ *  rounds. Somebody passing --delay 1000 to be careful with a small server got
+ *  four simultaneous requests one second in, which is the opposite of what
+ *  they asked for. */
 export async function pool<T, R>(
   items: T[],
   limit: number,
@@ -182,11 +190,22 @@ export async function pool<T, R>(
 ): Promise<R[]> {
   const results = new Array<R>(items.length);
   let cursor = 0;
+  let nextStart = 0;
+
+  const wait = async (): Promise<void> => {
+    if (delayMs <= 0) return;
+    const now = Date.now();
+    const at = Math.max(now, nextStart);
+    // Claim the slot before awaiting, so two workers cannot take the same one.
+    nextStart = at + delayMs;
+    if (at > now) await new Promise((r) => setTimeout(r, at - now));
+  };
+
   const runners = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
     for (;;) {
       const index = cursor++;
       if (index >= items.length) return;
-      if (delayMs > 0 && index > 0) await new Promise((r) => setTimeout(r, delayMs));
+      await wait();
       results[index] = await worker(items[index]!, index);
     }
   });

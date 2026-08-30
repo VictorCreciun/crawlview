@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
+import path from "node:path";
 import { writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import pc from "picocolors";
@@ -12,6 +13,7 @@ import { toJson } from "./report/json.js";
 import { toHtml } from "./report/html.js";
 import { toMarkdown } from "./report/markdown.js";
 import { diffSnapshot, readSnapshot, writeSnapshot } from "./snapshot.js";
+import { applyIgnores, loadConfig } from "./config.js";
 import type { RunOptions } from "./types.js";
 
 /* Same trap as the renderer: createColors returns a new object and leaves the
@@ -48,6 +50,11 @@ ${pc.bold("Options")}
       --html <file>      Standalone HTML report.
       --md <file>        Markdown, for an issue or a PR comment.
       --brand            Add studio identity to the HTML report.
+
+      --ignore <codes>   Finding codes to suppress, comma separated.
+      --config <file>    Settings file. Otherwise crawlview.json is used if
+                         it sits in the working directory.
+      --fail-on <level>  What --ci treats as failure: error (default) or warn.
 
       --snapshot <file>  Write a baseline to compare against later.
       --diff <file>      Compare this run against a baseline and report changes.
@@ -114,6 +121,9 @@ export async function main(argv: string[]): Promise<number> {
         snapshot: { type: "string" },
         diff: { type: "string" },
         ci: { type: "boolean", default: false },
+        ignore: { type: "string" },
+        config: { type: "string" },
+        "fail-on": { type: "string" },
         "min-text": { type: "string" },
         header: { type: "string", short: "H", multiple: true },
         auth: { type: "string" },
@@ -122,6 +132,7 @@ export async function main(argv: string[]): Promise<number> {
         concurrency: { type: "string" },
         delay: { type: "string" },
         insecure: { type: "boolean", default: false },
+        "crawl-delay": { type: "boolean", default: true },
         color: { type: "boolean", default: true },
         "list-agents": { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
@@ -159,6 +170,18 @@ export async function main(argv: string[]): Promise<number> {
 
   const url = normaliseUrl(positionals[0]!);
 
+  let config;
+  let configPath: string | null = null;
+  try {
+    ({ config, path: configPath } = await loadConfig(values.config));
+  } catch (err) {
+    fail(err instanceof Error ? err.message : String(err));
+  }
+  const ignore = [
+    ...config.ignore,
+    ...(values.ignore ? values.ignore.split(",") : []),
+  ];
+
   const headers: Record<string, string> = {};
   for (const raw of values.header ?? []) {
     const sep = raw.indexOf(":");
@@ -175,7 +198,7 @@ export async function main(argv: string[]): Promise<number> {
 
   const options: Partial<RunOptions> & { url: string } = {
     url,
-    agents: values.agents ? values.agents.split(",") : ["default"],
+    agents: values.agents ? values.agents.split(",") : config.agents ?? ["default"],
     render: values.render ?? false,
     timeoutMs: number(values.timeout, 20_000, "timeout"),
     concurrency: Math.max(1, number(values.concurrency, 4, "concurrency")),
@@ -213,6 +236,7 @@ export async function main(argv: string[]): Promise<number> {
       agents: options.agents ?? ["default"],
       limit: Math.max(1, number(values.limit, 50, "limit")),
       sitemapUrl: values["sitemap-url"] ?? null,
+      ignoreCrawlDelay: values["crawl-delay"] === false,
       agentId: report.agents.find((a) => a.agent.ua)?.agent.id ?? "googlebot-mobile",
     });
     report.site = site;
@@ -228,6 +252,9 @@ export async function main(argv: string[]): Promise<number> {
       fail(`could not read snapshot ${values.diff}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+
+  const { kept, ignored } = applyIgnores(report.findings, ignore);
+  report.findings = kept;
 
   // --- Output -------------------------------------------------------------------
   let wroteStdout = false;
@@ -248,6 +275,10 @@ export async function main(argv: string[]): Promise<number> {
 
   if (!wroteStdout) {
     process.stdout.write(`${renderTerminal(report, { color, verbose: values.verbose ?? false })}\n`);
+    if (ignored.length) {
+      const where = configPath ? path.basename(configPath) : "--ignore";
+      process.stdout.write(ink.dim(`  ${ignored.length} finding${ignored.length === 1 ? "" : "s"} suppressed by ${where}\n\n`));
+    }
     const written = [values.html, values.md, values.snapshot].filter(Boolean);
     if (written.length) {
       process.stdout.write(ink.dim(`  wrote ${written.join(", ")}\n\n`));
@@ -257,10 +288,15 @@ export async function main(argv: string[]): Promise<number> {
   // --- Exit code -----------------------------------------------------------------
   if (!values.ci) return 0;
 
-  const errors = report.findings.filter((f) => f.severity === "error").length;
-  if (errors) return 1;
+  const failOn = values["fail-on"] ?? config.failOn ?? "error";
+  if (failOn !== "error" && failOn !== "warn") {
+    fail(`--fail-on expects "error" or "warn", got: ${failOn}`);
+  }
+  const failing = report.findings.filter((f) =>
+    f.severity === "error" || (failOn === "warn" && f.severity === "warn"));
+  if (failing.length) return 1;
 
-  const minText = number(values["min-text"], 60, "min-text");
+  const minText = number(values["min-text"], config.minText ?? 60, "min-text");
   if (report.browser && report.browser.facts.wordCount >= 50) {
     const reference = report.browser.facts.wordCount;
     const worst = report.agents

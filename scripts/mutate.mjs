@@ -90,6 +90,32 @@ const MUTATIONS = [
   { id: "structured/required-props", file: "src/checks/structured.ts",
     from: "if (missingRequired.length) {", to: "if (false) {" },
 
+  { id: "structured/itemlist-missing", file: "src/checks/structured.ts",
+    from: "if (missing.length) {\n      // Every value inside this list is now accounted for by one finding.",
+    to: "if (false) {\n      // Every value inside this list is now accounted for by one finding." },
+  { id: "structured/itemlist-dedupe", file: "src/checks/structured.ts",
+    from: "if (explainedByList.has(node)) continue;", to: "" },
+  { id: "structured/itemlist-floor", file: "src/checks/structured.ts",
+    from: "if (named.length < 3) continue;", to: "" },
+
+  // --- config ---------------------------------------------------------------
+  { id: "config/ignore", file: "src/config.ts",
+    from: "if (set.has(code)) return true;", to: "if (false) return true;" },
+  { id: "config/base-code", file: "src/config.ts",
+    from: "if (colon > 0 && set.has(code.slice(colon + 1))) return true;", to: "" },
+  { id: "config/keeps-ignored", file: "src/config.ts",
+    from: "for (const item of findings) (suppressed(item.code) ? ignored : kept).push(item);",
+    to: "for (const item of findings) { if (!suppressed(item.code)) kept.push(item); }" },
+  { id: "config/type-guard", file: "src/config.ts",
+    from: 'const failOn = record.failOn === "warn" || record.failOn === "error" ? record.failOn : undefined;',
+    to: "const failOn = record.failOn;" },
+  { id: "config/rejects-array", file: "src/config.ts",
+    from: "if (!data || typeof data !== \"object\" || Array.isArray(data)) {", to: "if (false) {" },
+
+  // --- crawl-delay ----------------------------------------------------------
+  { id: "site/crawl-delay", file: "src/site/crawl.ts",
+    from: "if (!opts.ignoreCrawlDelay && declaredDelay && declaredDelay > 0) {", to: "if (false) {" },
+
   // --- basics ---------------------------------------------------------------
   { id: "basics/xrobots-header", file: "src/checks/basics.ts",
     from: "const headerBlocks = headerRobots.some((v) => /\\bnoindex|\\bnone\\b/i.test(v));",
@@ -128,6 +154,8 @@ const MUTATIONS = [
     from: "if (next === url) {", to: "if (false) {" },
   { id: "fetch/pool-limit", file: "src/fetch.ts",
     from: "Math.max(1, Math.min(limit, items.length))", to: "items.length" },
+  { id: "fetch/global-pacing", file: "src/fetch.ts",
+    from: "    nextStart = at + delayMs;", to: "    nextStart = now + delayMs;" },
   { id: "fetch/pool-order", file: "src/fetch.ts",
     from: "results[index] = await worker(items[index]!, index);",
     to: "results[items.length - 1 - index] = await worker(items[index]!, index);" },
@@ -202,6 +230,12 @@ for (const mutation of list) {
     await run("npx", ["vitest", "run", "--silent", "--reporter=dot"], {
       timeout: 120_000,
       maxBuffer: 32 * 1024 * 1024,
+      /* Colour forced on, because a bug can only be observed under the
+         conditions that make it matter. picocolors disables itself when
+         stdout is not a terminal, so without this the --no-color mutation
+         produces identical output either way and survives — which is exactly
+         how the real bug reached production. */
+      env: { ...process.env, FORCE_COLOR: "3" },
     });
   } catch {
     caught = true; // a non-zero exit means the suite noticed

@@ -5,6 +5,7 @@ import { toMarkdown } from "../src/report/markdown.js";
 import { toJson } from "../src/report/json.js";
 import { parseHtml } from "../src/extract/html.js";
 import { agentById } from "../src/agents.js";
+import pc from "picocolors";
 import type { Capture, PageReport } from "../src/types.js";
 
 const URL_ = "https://example.com/page";
@@ -79,8 +80,16 @@ describe("renderTerminal", () => {
     expect(out.indexOf("Nothing is stored.")).toBeLessThan(out.indexOf("No Open Graph tags."));
   });
 
-  it("emits no escape codes when colour is off", () => {
+  /* Only provable when colour is on. picocolors decides that at import time
+     and turns itself off for a pipe, which is every local run — so without the
+     guard this reads as a passing test while proving nothing, and that is how
+     the broken --no-color shipped. CI and the mutation harness both force
+     colour, so the check does run where it counts. */
+  it.skipIf(!pc.isColorSupported)("emits no escape codes when colour is off", () => {
     expect(plain(report()).includes(ESC)).toBe(false);
+    // And the same report with colour on must contain them, or the assertion
+    // above is measuring an environment rather than the code.
+    expect(renderTerminal(report(), { color: true, verbose: false }).includes(ESC)).toBe(true);
   });
 
   it("says so plainly when there is nothing to report", () => {

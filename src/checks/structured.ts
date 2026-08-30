@@ -180,6 +180,43 @@ export function checkStructured(report: PageReport): Finding[] {
     }
   }
 
+  /* --- ItemList against what the page renders ------------------------------
+     A listing page marks up its items and then paginates them. The markup gets
+     the whole result set, the grid gets a slice, and the difference is a set of
+     products described to a search engine and shown to nobody.
+
+     Worth its own check rather than leaving it to the claim comparison above:
+     that one reported six unfamiliar prices, which says nothing about where to
+     look. This says twenty-eight items marked up, twenty-two on the page. */
+  const explainedByList = new Set<Node>();
+  for (const node of nodes.filter((n) => typesOf(n).includes("ItemList"))) {
+    const raw = node["itemListElement"];
+    const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    if (list.length < 3) continue;
+
+    const named: string[] = [];
+    for (const entry of list) {
+      if (!isNode(entry)) continue;
+      const inner = isNode(entry["item"]) ? (entry["item"] as Node) : entry;
+      const name = inner["name"];
+      if (typeof name === "string" && name.trim()) named.push(name.trim());
+    }
+    if (named.length < 3) continue;
+
+    const missing = named.filter((name) => !mentioned(name.slice(0, 60), pageText, pageTokens));
+    if (missing.length) {
+      // Every value inside this list is now accounted for by one finding.
+      for (const inner of walk(node)) explainedByList.add(inner);
+      const share = Math.round((missing.length / named.length) * 100);
+      out.push(finding("itemlist-not-on-page", "error",
+        `ItemList marks up ${named.length} items; ${missing.length} of them are not on the page.`,
+        { detail: share >= 50
+            ? "More than half the list exists only in the markup. Either the page paginates and the markup does not, or the list is describing a different page altogether."
+            : "The usual cause is pagination: the markup receives the whole result set while the grid renders a slice. Mark up the items the page actually renders.",
+          evidence: missing.slice(0, 5).map((n) => truncate(n, 60)) }));
+    }
+  }
+
   // --- The cross-check: structured data must not out-claim the page ----------
   // Google's own rule, and one almost nothing verifies. A claim the reader
   // cannot see is the definition of the markup being about something else.
@@ -196,6 +233,7 @@ export function checkStructured(report: PageReport): Finding[] {
 
   const unsupported: string[] = [];
   for (const node of nodes) {
+    if (explainedByList.has(node)) continue;
     for (const { key, label } of CLAIMS) {
       for (const value of literals(node, key)) {
         if (!mentioned(value, pageText, pageTokens)) {

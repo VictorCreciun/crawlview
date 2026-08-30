@@ -14,6 +14,8 @@ export interface SiteOptions extends RunOptions {
   sitemapUrl: string | null;
   /** The agent whose eyes the site is walked through. */
   agentId: string;
+  /** Ignore the site's declared crawl-delay. */
+  ignoreCrawlDelay: boolean;
 }
 
 interface PageRow {
@@ -91,7 +93,27 @@ export async function crawlSite(opts: SiteOptions): Promise<{ site: SiteReport; 
   const targets = [...new Set(locs)].slice(0, opts.limit);
   const agent = agentById(opts.agentId) ?? agentById("googlebot-mobile")!;
 
-  const rows = await pool(targets, opts.concurrency, opts.delayMs, async (url): Promise<PageRow> => {
+  /* A site that asks for a crawl-delay gets one. The tool sends real crawler
+     user-agents and, in this mode, fetches hundreds of pages — declining to
+     read a limit written for exactly that situation would be indefensible.
+     An explicit --delay still wins when it is the slower of the two, and
+     --no-crawl-delay exists for a site you own and are in a hurry with. */
+  let delayMs = opts.delayMs;
+  let concurrency = opts.concurrency;
+  const declaredDelay = robots ? evaluate(robots, agent, opts.url).crawlDelay : null;
+  if (!opts.ignoreCrawlDelay && declaredDelay && declaredDelay > 0) {
+    const asMs = declaredDelay * 1000;
+    if (asMs > delayMs) {
+      delayMs = asMs;
+      // A pause between starts means nothing if twenty requests start at once.
+      concurrency = 1;
+      findings.push(finding("crawl-delay-honoured", "info",
+        `robots.txt asks for ${declaredDelay}s between requests, and this run obeys it.`,
+        { detail: `${targets.length} pages at one request every ${declaredDelay}s. Pass --no-crawl-delay to override, or --limit to check fewer.` }));
+    }
+  }
+
+  const rows = await pool(targets, concurrency, delayMs, async (url): Promise<PageRow> => {
     const cap = await capture({ url, ua: agent.ua, agentId: agent.id }, opts);
     if (cap.error || !cap.html) {
       return { url, status: cap.error ? null : cap.status, wordCount: null, title: null,
