@@ -54,13 +54,20 @@ export async function crawlSite(opts: SiteOptions): Promise<{ site: SiteReport; 
 
   let sitemapUrl: string | null = null;
   let entries: SitemapEntry[] = [];
+  /* Where the site really lives. Taken from the sitemap's own address after
+     redirects, not from what was typed: an apex that 301s to www serves a
+     sitemap at www listing www addresses, which is correct — and comparing
+     them against the apex declared all 646 of them to be on another host and
+     then checked nothing at all. */
+  let siteOrigin = origin;
 
   const candidates = opts.sitemapUrl ? [opts.sitemapUrl] : candidateSitemaps(origin, declared);
   for (const candidate of candidates) {
     const loaded = await loadSitemap(candidate, opts);
     if (loaded.entries.length) {
-      sitemapUrl = candidate;
+      sitemapUrl = loaded.resolvedUrl ?? candidate;
       entries = loaded.entries;
+      try { siteOrigin = new URL(sitemapUrl).origin; } catch { /* keep the requested one */ }
       break;
     }
   }
@@ -80,7 +87,7 @@ export async function crawlSite(opts: SiteOptions): Promise<{ site: SiteReport; 
       `The sitemap lists ${new Set(duplicates).size} URL${new Set(duplicates).size === 1 ? "" : "s"} more than once.`,
       { evidence: [...new Set(duplicates)].slice(0, 5) }));
   }
-  const offsite = locs.filter((l) => { try { return new URL(l).origin !== origin; } catch { return true; } });
+  const offsite = locs.filter((l) => { try { return new URL(l).origin !== siteOrigin; } catch { return true; } });
   if (offsite.length) {
     findings.push(finding("sitemap-offsite", "error",
       `${offsite.length} sitemap ${offsite.length === 1 ? "entry is" : "entries are"} on another host.`,
@@ -100,7 +107,7 @@ export async function crawlSite(opts: SiteOptions): Promise<{ site: SiteReport; 
      request to a third party because their address happened to appear in
      somebody else's file. They are still reported above. */
   const targets = [...new Set(locs)]
-    .filter((l) => { try { return new URL(l).origin === origin; } catch { return false; } })
+    .filter((l) => { try { return new URL(l).origin === siteOrigin; } catch { return false; } })
     .slice(0, opts.limit);
   const agent = agentById(opts.agentId) ?? agentById("googlebot-mobile")!;
 

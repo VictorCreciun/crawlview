@@ -31,12 +31,16 @@ export interface SitemapResult {
   entries: SitemapEntry[];
   sources: string[];
   errors: string[];
+  /** Where the sitemap was actually served from, after redirects. A request
+   *  to an apex domain often lands on www, and that answer — not the address
+   *  someone typed — is what "this site" means for everything downstream. */
+  resolvedUrl: string | null;
 }
 
 /** Follows sitemap indexes one level deep, which covers every sitemap anyone
  *  actually ships. Depth is capped so a self-referencing index cannot loop. */
 export async function loadSitemap(url: string, opts: RunOptions, depth = 0): Promise<SitemapResult> {
-  const result: SitemapResult = { entries: [], sources: [url], errors: [] };
+  const result: SitemapResult = { entries: [], sources: [url], errors: [], resolvedUrl: null };
   const res = await fetchText(url, opts, BROWSER_UA);
 
   if (res.status !== 200 || !res.body) {
@@ -44,6 +48,7 @@ export async function loadSitemap(url: string, opts: RunOptions, depth = 0): Pro
     return result;
   }
 
+  result.resolvedUrl = res.finalUrl;
   const body = res.body;
 
   // A sitemap index points at other sitemaps.

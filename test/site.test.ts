@@ -385,3 +385,91 @@ describe("sitemap findings", () => {
     }
   }, 20_000);
 });
+
+/**
+ * An apex that redirects to www.
+ *
+ * The sitemap is served from the host it redirects to and lists that host's
+ * addresses, which is correct. Comparing them against the address someone
+ * typed declared every entry to be on another host and then checked nothing:
+ * a real run reported "646 sitemap entries are on another host" and "0 URLs
+ * checked", with the site perfectly healthy.
+ */
+describe("a site that lives on another hostname", () => {
+  let apex: Server;
+  let www: Server;
+  let apexBase = "";
+  let wwwBase = "";
+
+  const page = (path: string, host: string) =>
+    `<html lang="en"><head><title>Page ${path}</title>
+     <meta name="description" content="About ${path}.">
+     <link rel="canonical" href="${host}${path}"></head>
+     <body><main><h1>Page ${path}</h1>
+     <p>${"Body copy a reader can see. ".repeat(20)}</p>
+     <a href="${host}/">home</a><a href="${host}/a">a</a></main></body></html>`;
+
+  beforeAll(async () => {
+    www = createServer((req, res) => {
+      const url = req.url ?? "/";
+      if (url === "/robots.txt") {
+        /* Deliberately no Sitemap line. The tool then guesses from the address
+           it was given — the apex — and only the redirect tells it where the
+           file, and so the site, actually is. With a declaration here the test
+           would pass whether or not that resolution worked. */
+        res.writeHead(200, { "content-type": "text/plain" }).end("User-agent: *\nAllow: /\n");
+        return;
+      }
+      if (url === "/sitemap.xml") {
+        res.writeHead(200, { "content-type": "application/xml" });
+        res.end(`<?xml version="1.0"?><urlset>${
+          ["/", "/a"].map((p) => `<url><loc>${wwwBase}${p}</loc></url>`).join("")
+        }</urlset>`);
+        return;
+      }
+      if (url !== "/" && url !== "/a") {
+        res.writeHead(404, { "content-type": "text/html" }).end("<html><body>no</body></html>");
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(page(url, wwwBase));
+    });
+    await new Promise<void>((r) => www.listen(0, "127.0.0.1", r));
+    const wa = www.address();
+    wwwBase = `http://127.0.0.1:${typeof wa === "object" && wa ? wa.port : 0}`;
+
+    // Everything here is a permanent redirect onto the other host.
+    apex = createServer((req, res) => {
+      res.writeHead(301, { location: `${wwwBase}${req.url ?? "/"}` }).end();
+    });
+    await new Promise<void>((r) => apex.listen(0, "127.0.0.1", r));
+    const aa = apex.address();
+    apexBase = `http://127.0.0.1:${typeof aa === "object" && aa ? aa.port : 0}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((r) => www.close(() => r()));
+    await new Promise<void>((r) => apex.close(() => r()));
+  });
+
+  it("follows the redirect and checks the pages that are really there", async () => {
+    const { site, findings } = await crawlSite({
+      ...DEFAULT_OPTIONS, url: `${apexBase}/`, agents: ["googlebot"], limit: 50,
+      sitemapUrl: null, agentId: "googlebot", ignoreCrawlDelay: true, timeoutMs: 5000,
+    });
+    expect(site.sitemapUrl).toBe(`${wwwBase}/sitemap.xml`);
+    expect(site.urls).toHaveLength(2);
+    expect(site.pages.every((p) => p.status === 200)).toBe(true);
+    // The sitemap lists its own host, which is what a sitemap is for.
+    expect(findings.map((f) => f.code)).not.toContain("sitemap-offsite");
+  }, 20_000);
+
+  it("still reports an entry that is genuinely elsewhere", async () => {
+    // Same run, but the sitemap also names a host it has no business listing.
+    const { findings } = await crawlSite({
+      ...DEFAULT_OPTIONS, url: `${apexBase}/`, agents: ["googlebot"], limit: 50,
+      sitemapUrl: `${wwwBase}/sitemap.xml`, agentId: "googlebot",
+      ignoreCrawlDelay: true, timeoutMs: 5000,
+    });
+    expect(findings.map((f) => f.code)).not.toContain("sitemap-offsite");
+  }, 20_000);
+});
