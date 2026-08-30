@@ -46,6 +46,23 @@ export function checkAi(report: PageReport): Finding[] {
   const botView = results.find((r) => r.agent.group === "ai") ?? results[0]!;
   const facts = botView.facts!;
 
+  /* What kind of page this is. Several checks below presuppose an article —
+     that there is prose with a date, an author and sections worth quoting —
+     and applying them to a shop said things that were true and useless. A
+     category page has thirty-nine headings because it has thirty-nine
+     products, not because somebody misused headings; a storefront has no
+     publication date because it is not a publication.
+
+     Only positive evidence counts. A page with no markup at all stays in
+     scope, because a service page without a date really is harder to cite. */
+  const declared = new Set(facts.jsonLd.flatMap((b) => b.types));
+  const isArticle = ["Article", "BlogPosting", "NewsArticle", "TechArticle",
+    "ScholarlyArticle", "Report", "FAQPage", "HowTo", "Recipe"]
+    .some((t) => declared.has(t));
+  const isCommerce = !isArticle && ["ItemList", "Product", "Offer", "LocalBusiness",
+    "Store", "OnlineStore", "Restaurant", "AutoDealer"]
+    .some((t) => declared.has(t));
+
   // --- llms.txt ---------------------------------------------------------------
   if (report.llmsTxt) {
     if (report.llmsTxt.present) {
@@ -62,7 +79,7 @@ export function checkAi(report: PageReport): Finding[] {
      lost, so measuring how much prose survives extraction says nothing — it
      fired on every category page of a shop, each of which was working exactly
      as intended. An ItemList is the page telling us what it is. */
-  const isListing = facts.jsonLd.some((b) => b.types.includes("ItemList"));
+  const isListing = declared.has("ItemList");
   if (!isListing && facts.wordCount >= 100 && pct(readableWords, facts.wordCount) < 35) {
     /* The usual cure is a <main> or <article> wrapper — but only when there is
        not one already. Recommending it to a page that has it reads as advice
@@ -90,7 +107,7 @@ export function checkAi(report: PageReport): Finding[] {
 
   // --- Section shape ----------------------------------------------------------
   const parts = sections(facts);
-  if (parts.length > 1) {
+  if (parts.length > 1 && !isCommerce) {
     const oversized = parts.filter((s) => s.words > 900);
     const tiny = parts.filter((s) => s.words < 15);
     if (oversized.length) {
@@ -118,7 +135,7 @@ export function checkAi(report: PageReport): Finding[] {
   const anchorable = facts.headings.filter((h) => h.level <= 3).length;
   if (anchorable >= 3 && anchored < anchorable / 2) missing.push("stable heading anchors");
 
-  if (missing.length >= 2) {
+  if (missing.length >= 2 && !isCommerce) {
     out.push(finding("citability-weak", "info",
       `The page gives a model little to cite: no ${list(missing)}.`,
       { group: "The page gives a model little to cite.",

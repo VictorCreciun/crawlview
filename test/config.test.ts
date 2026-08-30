@@ -218,6 +218,60 @@ describe("ItemList against the page", () => {
     expect(without.detail).toContain("Wrapping the article");
   });
 
+  /* Several AI-readiness checks presuppose an article. Applied to a shop they
+     said things that were true and useless: a category page has thirty-nine
+     headings because it has thirty-nine products, and a storefront has no
+     publication date because it is not a publication. */
+  const prose = "A paragraph of real prose that a reader would actually read. ".repeat(12);
+  const shaped = (ld: string | null) =>
+    `<html lang="en"><head><title>T</title><meta name="description" content="D">
+     ${ld ? `<script type="application/ld+json">${ld}</script>` : ""}</head>
+     <body><main><h1>Heading</h1><p>${prose}</p>
+     <h2>Second</h2><p>${prose}</p></main></body></html>`;
+
+  it("does not ask a storefront for a publication date", async () => {
+    const { checkAi } = await import("../src/checks/ai.js");
+    const html = shaped('{"@context":"https://schema.org","@type":"LocalBusiness","name":"Shop","address":"a"}');
+    expect(checkAi(report(html)).map((x) => x.code)).not.toContain("citability-weak");
+  });
+
+  it("still asks an article for one", async () => {
+    const { checkAi } = await import("../src/checks/ai.js");
+    const html = shaped('{"@context":"https://schema.org","@type":"Article","headline":"H"}');
+    expect(checkAi(report(html)).map((x) => x.code)).toContain("citability-weak");
+  });
+
+  it("still asks a page carrying no markup at all", async () => {
+    // No positive evidence that it is a shop, so it stays in scope: a service
+    // page without a date really is harder to cite.
+    const { checkAi } = await import("../src/checks/ai.js");
+    expect(checkAi(report(shaped(null))).map((x) => x.code)).toContain("citability-weak");
+  });
+
+  it("treats a review of a product as an article, not as a shop", async () => {
+    /* Both kinds of markup on one page is normal: a review carries Article for
+       the writing and Product for the thing reviewed. Whichever is checked
+       first must not decide it — an article is an article even when it has a
+       price in it. */
+    const { checkAi } = await import("../src/checks/ai.js");
+    const html = shaped(JSON.stringify([
+      { "@context": "https://schema.org", "@type": "Product", name: "Dashcam",
+        offers: { "@type": "Offer", price: "100", priceCurrency: "MDL" } },
+      { "@context": "https://schema.org", "@type": "Article", headline: "Reviewed" },
+    ]));
+    expect(checkAi(report(html)).map((x) => x.code)).toContain("citability-weak");
+  });
+
+  it("does not judge a storefront's headings by article structure", async () => {
+    const { checkAi } = await import("../src/checks/ai.js");
+    const cards = Array.from({ length: 20 },
+      (_, i) => `<h3>Produs ${i}</h3><span>${100 + i} MDL</span>`).join("");
+    const html = `<html lang="en"><head><title>T</title>
+      <script type="application/ld+json">{"@context":"https://schema.org","@type":"LocalBusiness","name":"S","address":"a"}</script>
+      </head><body><main><h1>Shop</h1>${cards}</main></body></html>`;
+    expect(checkAi(report(html)).map((x) => x.code)).not.toContain("chunk-fragmented");
+  });
+
   it("leaves a long list alone when almost none of it is named", () => {
     /* Two guards look alike and are not: one counts entries, the other counts
        entries carrying a name. A list of five items where three have no name
