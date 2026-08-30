@@ -166,6 +166,58 @@ describe("ItemList against the page", () => {
     expect(found.map((x) => x.code)).not.toContain("itemlist-not-on-page");
   });
 
+  /* A page shaped exactly like a shop category: a long nav, a grid of short
+     product names, a fat footer. 284 visible words, 30% of them surviving
+     extraction — comfortably past the thresholds, so the check would fire on
+     it if nothing stopped it. */
+  const listingShell = (withItemList: boolean) => {
+    const nav = Array.from({ length: 40 },
+      (_, i) => `<a href="/c${i}">Categoria numarul ${i}</a>`).join("");
+    const grid = Array.from({ length: 12 },
+      (_, i) => `<article><h3>Produs ${i} cu nume lung de catalog</h3><span>${100 + i} MDL</span></article>`).join("");
+    const ld = withItemList
+      ? `<script type="application/ld+json">${JSON.stringify({
+          "@context": "https://schema.org", "@type": "ItemList",
+          itemListElement: [{ "@type": "ListItem", position: 1,
+            item: { "@type": "Product", name: "Produs 0 cu nume lung de catalog" } }],
+        })}</script>`
+      : "";
+    return `<html lang="en"><head><title>Cat</title>${ld}</head><body>
+      <nav>${nav}</nav><main><h1>Categorie</h1>${grid}</main>
+      <footer>${"Text de subsol repetat. ".repeat(30)}</footer></body></html>`;
+  };
+
+  it("does not judge a listing page by how much prose survives extraction", async () => {
+    /* A category page is a list. There is no article in it to keep or lose, so
+       the extraction measure said nothing — and said it about every category
+       page of a shop that was working exactly as intended. */
+    const { checkAi } = await import("../src/checks/ai.js");
+    expect(checkAi(report(listingShell(true))).map((x) => x.code)).not.toContain("extraction-poor");
+  });
+
+  it("still measures extraction on a page that is not a listing", async () => {
+    const { checkAi } = await import("../src/checks/ai.js");
+    // The same page without the ItemList: nothing says it is a list, so the
+    // measure applies and has to fire. Otherwise the test above proves only
+    // that the fixture was too small.
+    expect(checkAi(report(listingShell(false))).map((x) => x.code)).toContain("extraction-poor");
+  });
+
+  it("does not tell a page to add a <main> it already has", async () => {
+    const { checkAi } = await import("../src/checks/ai.js");
+    const withMain = checkAi(report(listingShell(false)))
+      .find((x) => x.code === "extraction-poor")!;
+    expect(withMain.detail).toContain("already has");
+    expect(withMain.detail).not.toContain("Wrapping the article");
+
+    // Swapped for a plain div rather than deleted: the landmark goes, the
+    // structure stays, so the only thing that changes is the advice.
+    const noMain = listingShell(false)
+      .replace("<main>", '<div class="body">').replace("</main>", "</div>");
+    const without = checkAi(report(noMain)).find((x) => x.code === "extraction-poor")!;
+    expect(without.detail).toContain("Wrapping the article");
+  });
+
   it("leaves a long list alone when almost none of it is named", () => {
     /* Two guards look alike and are not: one counts entries, the other counts
        entries carrying a name. A list of five items where three have no name

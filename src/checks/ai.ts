@@ -58,10 +58,27 @@ export function checkAi(report: PageReport): Finding[] {
 
   // --- Is there anything to extract at all ------------------------------------
   const readableWords = countWords(facts.text);
-  if (facts.wordCount >= 100 && pct(readableWords, facts.wordCount) < 35) {
+  /* A listing page is a list. There is no article buried in it to be kept or
+     lost, so measuring how much prose survives extraction says nothing — it
+     fired on every category page of a shop, each of which was working exactly
+     as intended. An ItemList is the page telling us what it is. */
+  const isListing = facts.jsonLd.some((b) => b.types.includes("ItemList"));
+  if (!isListing && facts.wordCount >= 100 && pct(readableWords, facts.wordCount) < 35) {
+    /* The usual cure is a <main> or <article> wrapper — but only when there is
+       not one already. Recommending it to a page that has it reads as advice
+       from something that did not look. */
+    /* <main> only, deliberately. An <article> is not a landmark for this
+       purpose: a product card is an <article>, a comment is an <article>, and
+       a grid of twelve of them says nothing about whether the body copy has a
+       wrapper. Matching them made the advice claim a page "already has" one
+       when it plainly did not. */
+    const hasLandmark = /<main\b|role=["']main["']/i.test(results[0]?.capture?.html ?? "");
     out.push(finding("extraction-poor", "warn",
       `Only ${pct(readableWords, facts.wordCount)}% of the page's text survives content extraction.`,
-      { detail: "The body copy is not distinguishable from navigation and boilerplate, so an extractor keeps the wrong part. Wrapping the article in <main> or <article> is usually the whole fix.",
+      { group: "Little of the page's text survives content extraction.",
+        detail: hasLandmark
+          ? "The body copy is not distinguishable from navigation and boilerplate. The page already has a <main> or <article>, so the wrapper is not the problem: the landmark is holding the furniture as well as the content."
+          : "The body copy is not distinguishable from navigation and boilerplate, so an extractor keeps the wrong part. Wrapping the article in <main> or <article> is usually the whole fix.",
         evidence: [`${facts.wordCount} words on the page, ${readableWords} in the extracted body`] }));
   }
 
@@ -104,7 +121,8 @@ export function checkAi(report: PageReport): Finding[] {
   if (missing.length >= 2) {
     out.push(finding("citability-weak", "info",
       `The page gives a model little to cite: no ${list(missing)}.`,
-      { detail: "Assistants prefer sources they can attribute and link precisely. These cost nothing to add and decide whether you are quoted or merely read." }));
+      { group: "The page gives a model little to cite.",
+        detail: "Assistants prefer sources they can attribute and link precisely. These cost nothing to add and decide whether you are quoted or merely read." }));
   }
 
   // --- The AI-specific view ----------------------------------------------------

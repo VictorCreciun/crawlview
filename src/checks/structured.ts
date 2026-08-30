@@ -170,7 +170,8 @@ export function checkStructured(report: PageReport): Finding[] {
       if (missingRequired.length) {
         out.push(finding("jsonld-required-missing", "error",
           `${type} is missing ${missingRequired.length === 1 ? "a required property" : "required properties"}: ${missingRequired.join(", ")}.`,
-          { detail: spec.richResult ? `Without it the page cannot qualify for the ${spec.richResult} rich result.` : undefined }));
+          { group: "A structured-data type is missing a required property.",
+            detail: spec.richResult ? `Without it the page cannot qualify for the ${spec.richResult} rich result.` : undefined }));
       }
       const missingRecommended = spec.recommended.filter((key) => !(key in node));
       if (missingRecommended.length && !missingRequired.length) {
@@ -209,8 +210,9 @@ export function checkStructured(report: PageReport): Finding[] {
       for (const inner of walk(node)) explainedByList.add(inner);
       const share = Math.round((missing.length / named.length) * 100);
       out.push(finding("itemlist-not-on-page", "error",
-        `ItemList marks up ${named.length} items; ${missing.length} of them are not on the page.`,
-        { detail: share >= 50
+        `ItemList marks up ${named.length} items; ${missing.length} of them ${missing.length === 1 ? "is" : "are"} not on the page.`,
+        { group: "ItemList marks up items the page does not render.",
+          detail: share >= 50
             ? "More than half the list exists only in the markup. Either the page paginates and the markup does not, or the list is describing a different page altogether."
             : "The usual cause is pagination: the markup receives the whole result set while the grid renders a slice. Mark up the items the page actually renders.",
           evidence: missing.slice(0, 5).map((n) => truncate(n, 60)) }));
@@ -245,7 +247,8 @@ export function checkStructured(report: PageReport): Finding[] {
   if (unsupported.length) {
     out.push(finding("jsonld-unsupported-claim", "error",
       `Structured data states ${unsupported.length === 1 ? "a fact" : "facts"} the page itself does not.`,
-      { detail: "Markup has to describe what a visitor can see. Claims that appear only in the JSON-LD are what manual actions for structured-data spam are issued for.",
+      { group: "Structured data states facts the page itself does not.",
+        detail: "Markup has to describe what a visitor can see. Claims that appear only in the JSON-LD are what manual actions for structured-data spam are issued for.",
         evidence: unsupported.slice(0, 6) }));
   }
 
@@ -323,7 +326,8 @@ export function checkStructured(report: PageReport): Finding[] {
     if (unseen > 0) {
       out.push(finding("faq-not-on-page", "error",
         `${unseen} FAQ ${unseen === 1 ? "question is" : "questions are"} in the markup but not visible on the page.`,
-        { detail: "FAQ markup only qualifies when the same question and answer are on the page for a visitor to read." }));
+        { group: "FAQ questions are in the markup but not visible on the page.",
+          detail: "FAQ markup only qualifies when the same question and answer are on the page for a visitor to read." }));
     }
   }
 

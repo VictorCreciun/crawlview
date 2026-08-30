@@ -170,21 +170,29 @@ export async function crawlSite(opts: SiteOptions): Promise<{ site: SiteReport; 
   /* One line per distinct problem, not one per page. A 200-page shop with the
      same missing description everywhere is one fix, and printing it 200 times
      buries the problems that are genuinely on their own. */
-  const byCode = new Map<string, { finding: Finding; urls: string[] }>();
+  const byCode = new Map<string, { finding: Finding; urls: string[]; titles: string[] }>();
   for (const row of rows) {
     for (const item of row.findings) {
       const seen = byCode.get(item.code);
-      if (seen) seen.urls.push(row.url);
-      else byCode.set(item.code, { finding: item, urls: [row.url] });
+      if (seen) { seen.urls.push(row.url); seen.titles.push(item.title); }
+      else byCode.set(item.code, { finding: item, urls: [row.url], titles: [item.title] });
     }
   }
-  for (const { finding: item, urls } of [...byCode.values()].sort((a, b) => b.urls.length - a.urls.length)) {
+  for (const { finding: item, urls, titles } of [...byCode.values()].sort((a, b) => b.urls.length - a.urls.length)) {
     const many = urls.length > 1;
+    /* Only reuse the one page's wording when every page in the group says the
+       same thing. Where the pages differ — a count, a percentage, a list of
+       properties — the group line drops to the number-free form and each
+       page's own figures move into the evidence beside its URL. */
+    const uniform = new Set(titles).size === 1;
+    const headline = uniform ? item.title : item.group ?? item.title;
     findings.push({
       ...item,
       code: `page:${item.code}`,
-      title: many ? `${urls.length} pages — ${item.title}` : `1 page — ${item.title}`,
-      evidence: urls.slice(0, 5),
+      title: many ? `${urls.length} pages — ${headline}` : `1 page — ${headline}`,
+      evidence: uniform
+        ? urls.slice(0, 5)
+        : urls.slice(0, 5).map((u, i) => `${u} — ${titles[i]}`),
     });
   }
 

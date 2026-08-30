@@ -4,7 +4,7 @@ export function finding(
   code: string,
   severity: Severity,
   title: string,
-  extra: { detail?: string; agents?: string[]; evidence?: string[] } = {},
+  extra: { group?: string; detail?: string; agents?: string[]; evidence?: string[] } = {},
 ): Finding {
   return { code, severity, title, ...extra };
 }

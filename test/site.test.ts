@@ -164,6 +164,8 @@ describe("sitemap findings", () => {
     offsite?: string[];
     duplicateEntries?: boolean;
     noH1?: boolean;
+    /** Raw JSON-LD to serve, per URL. */
+    jsonld?: Record<string, string>;
   } = { urls: [] };
 
   beforeAll(async () => {
@@ -208,6 +210,7 @@ describe("sitemap findings", () => {
         <meta name="description" content="${title} — the description a template would produce.">
         <link rel="canonical" href="${canonical}">
         ${plan.noindex?.includes(url) ? '<meta name="robots" content="noindex">' : ""}
+        ${plan.jsonld?.[url] ? `<script type="application/ld+json">${plan.jsonld[url]}</script>` : ""}
         </head><body><main>${plan.noH1 ? "" : `<h1>${title}</h1>`}
         <p>${"Readable body copy that a person can actually read. ".repeat(15)}</p>
         ${links.map((l) => `<a href="${l}">${l}</a>`).join("")}
@@ -300,6 +303,45 @@ describe("sitemap findings", () => {
   it("reports a page linked internally but absent from the sitemap", async () => {
     plan = { urls: ["/"], links: () => ["/", "/unlisted"] };
     expect(await run()).toContain("missing-from-sitemap");
+  }, 20_000);
+
+  it("does not lend one page's numbers to the whole group", async () => {
+    /* Grouping by problem showed the first page's counts as though they
+       described every page in the group — "23 items, 11 missing" standing in
+       for pages ranging from 13 and 1 to 30 and 24. Where the pages differ,
+       the headline drops the numbers and each page carries its own. */
+    plan = {
+      urls: ["/", "/a", "/b"],
+      jsonld: {
+        "/a": '{"@context":"https://schema.org","@type":"Product","image":"i","description":"d","offers":{"@type":"Offer","price":"1","priceCurrency":"MDL"}}',
+        "/b": '{"@context":"https://schema.org","@type":"Event","name":"Concert"}',
+      },
+    };
+    const { findings } = await crawlSite({
+      ...DEFAULT_OPTIONS, url: `${base}/`, agents: ["googlebot"], limit: 50,
+      sitemapUrl: null, agentId: "googlebot", ignoreCrawlDelay: true, timeoutMs: 5000,
+    });
+    const grouped = findings.find((f) => f.code === "page:jsonld-required-missing")!;
+    expect(grouped).toBeDefined();
+    // One page is missing `name`, the other `startDate` and `location`.
+    // Neither list may stand in for the group.
+    expect(grouped.title).not.toContain("name");
+    expect(grouped.title).not.toContain("startDate");
+    const evidence = grouped.evidence!.join(" ");
+    expect(evidence).toContain("name");
+    expect(evidence).toContain("startDate");
+  }, 20_000);
+
+  it("keeps the wording when every page says the same thing", async () => {
+    plan = { urls: ["/", "/a"], noH1: true };
+    const { findings } = await crawlSite({
+      ...DEFAULT_OPTIONS, url: `${base}/`, agents: ["googlebot"], limit: 50,
+      sitemapUrl: null, agentId: "googlebot", ignoreCrawlDelay: true, timeoutMs: 5000,
+    });
+    const grouped = findings.find((f) => f.code === "page:h1-missing")!;
+    expect(grouped.title).toContain("No <h1> on the page.");
+    // Identical across the group, so the evidence stays a plain list of URLs.
+    expect(grouped.evidence!.every((e) => e.startsWith("http"))).toBe(true);
   }, 20_000);
 
   it("stays quiet on a site with none of these problems", async () => {

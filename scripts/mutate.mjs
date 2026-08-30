@@ -326,6 +326,20 @@ const MUTATIONS = [
   { id: "cli/suppressed-count", file: "src/cli.ts",
     from: "    if (ignored.length) {", to: "    if (false) {" },
 
+  { id: "site/group-uniform", file: "src/site/crawl.ts",
+    from: "const uniform = new Set(titles).size === 1;", to: "const uniform = true;" },
+  { id: "site/group-evidence", file: "src/site/crawl.ts",
+    from: "        : urls.slice(0, 5).map((u, i) => `${u} — ${titles[i]}`),",
+    to: "        : urls.slice(0, 5)," },
+  { id: "ai/listing-suppression", file: "src/checks/ai.ts",
+    from: 'const isListing = facts.jsonLd.some((b) => b.types.includes("ItemList"));',
+    to: "const isListing = false;" },
+  { id: "ai/landmark-advice", file: "src/checks/ai.ts",
+    from: `const hasLandmark = /<main\\b|role=["']main["']/i.test(results[0]?.capture?.html ?? "");`,
+    to: "const hasLandmark = false;" },
+  { id: "ai/landmark-article", file: "src/checks/ai.ts",
+    from: `/<main\\b|role=["']main["']/i`, to: `/<(main|article)\\b/i` },
+
   // --- util -----------------------------------------------------------------
   { id: "util/starved-share", file: "src/checks/util.ts",
     from: "export const STARVED_SHARE = 0.3;", to: "export const STARVED_SHARE = 0.0;" },

@@ -115,6 +115,12 @@ export interface Finding {
   severity: Severity;
   /** One sentence stating the defect, in plain words. */
   title: string;
+  /** The same statement with this page's numbers taken out, for when the
+   *  finding is reported across many pages at once. Without it, grouping
+   *  showed one page's counts as though they described every page in the
+   *  group: "23 items, 11 missing" standing in for pages that ranged from
+   *  13 items and 1 missing to 30 and 24. */
+  group?: string;
   /** What it means for the site, and what to do. Optional for `ok`. */
   detail?: string;
   /** Agents this applies to, empty when it is a page-level fact. */
