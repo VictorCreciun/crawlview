@@ -53,6 +53,47 @@ describe("checkStructured", () => {
     expect(codes(found)).toContain("jsonld-unsupported-claim");
   });
 
+  it("accepts a phone number that lives in the footer", () => {
+    // The article extractor throws footers away, and a footer is where a phone
+    // number nearly always is. Checking the extracted body accused three real
+    // sites of hiding a number they displayed on every page.
+    const html = page(
+      `<main><h1>H</h1><p>${prose}</p></main>
+       <footer><p>TELEFON: +373 78 800 989</p></footer>`,
+      `<script type="application/ld+json">
+       {"@type":"LocalBusiness","name":"X","address":"a","telephone":"+37378800989"}</script>`);
+    expect(codes(checkStructured(report([agentResult("googlebot", html)]))))
+      .not.toContain("jsonld-unsupported-claim");
+  });
+
+  it("accepts an address the page abbreviates", () => {
+    const html = page(
+      `<main><h1>H</h1><p>${prose}</p></main>
+       <footer><p>str. Alba Iulia 198, Chisinau</p></footer>`,
+      `<script type="application/ld+json">
+       {"@type":"LocalBusiness","name":"X","address":{"@type":"PostalAddress",
+        "streetAddress":"Strada Alba Iulia 198"}}</script>`);
+    expect(codes(checkStructured(report([agentResult("googlebot", html)]))))
+      .not.toContain("jsonld-unsupported-claim");
+  });
+
+  it("does not treat a priceRange band as a claim", () => {
+    // "$$" is schema.org notation for a band. No page has ever printed it.
+    const html = page(`<main><h1>H</h1><p>${prose}</p></main>`,
+      `<script type="application/ld+json">
+       {"@type":"LocalBusiness","name":"X","address":"a","priceRange":"$$"}</script>`);
+    expect(codes(checkStructured(report([agentResult("googlebot", html)]))))
+      .not.toContain("jsonld-unsupported-claim");
+  });
+
+  it("still flags a price band given as a figure the page never shows", () => {
+    const html = page(`<main><h1>H</h1><p>${prose}</p></main>`,
+      `<script type="application/ld+json">
+       {"@type":"LocalBusiness","name":"X","address":"a","priceRange":"450-900 MDL"}</script>`);
+    expect(codes(checkStructured(report([agentResult("googlebot", html)]))))
+      .toContain("jsonld-unsupported-claim");
+  });
+
   it("accepts a claim the page does show", () => {
     const html = page(`<main><h1>H</h1><p>Call us on +373 60 000 000 any weekday. ${prose}</p></main>`,
       `<script type="application/ld+json">

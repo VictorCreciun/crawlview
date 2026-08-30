@@ -1,6 +1,6 @@
 {
   "name": "crawlview",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "See what search engines and AI crawlers actually store for your pages — not what your browser shows you.",
   "keywords": [
     "seo", "crawler", "googlebot", "gptbot", "claudebot", "perplexitybot",

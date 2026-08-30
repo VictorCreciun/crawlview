@@ -81,6 +81,12 @@ export interface PageFacts {
   images: { src: string; alt: string | null }[];
   /** Readable body text, script and chrome stripped. */
   text: string;
+  /** Everything a visitor can read, navigation and footer included. Kept apart
+   *  from `text` because the two answer different questions: `text` is what an
+   *  extractor would keep, this is what a person can see. Anything asking
+   *  "is this on the page" has to use this one — a phone number in the footer
+   *  is on the page, and the article extractor throws footers away. */
+  visibleText: string;
   wordCount: number;
   /** Detected language of `text`, ISO 639-1, null when text is too short. */
   detectedLang: string | null;

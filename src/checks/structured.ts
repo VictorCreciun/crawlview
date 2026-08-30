@@ -80,10 +80,46 @@ function haystack(text: string): string {
   return text.toLowerCase().replace(/[\s ().,–—-]/g, "");
 }
 
-function mentioned(needle: string, hay: string): boolean {
-  const n = haystack(needle);
-  if (n.length < 2) return true;
-  return hay.includes(n);
+/** Words that carry no identifying weight in an address, and whose abbreviation
+ *  is the usual reason a true value looks missing: a page writes "str. Alba
+ *  Iulia 198" where the markup says "Strada Alba Iulia 198". */
+const NOISE = new Set([
+  "str", "strada", "street", "st", "bd", "bulevardul", "boulevard", "ave", "avenue",
+  "ul", "улица", "sos", "soseaua", "road", "rd", "drive", "lane",
+  "the", "and", "of", "nr", "no", "apt", "oficiul", "office", "etaj",
+]);
+
+/** The identifying parts of a value: words of three letters or more, and any
+ *  run of digits, with the noise words removed. */
+function tokens(value: string): string[] {
+  return value
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((t) => t.length >= 3 || /^\d+$/.test(t))
+    .filter((t) => !NOISE.has(t));
+}
+
+/** Is this value present on the page? An exact normalised match settles the
+ *  single-token case — a phone number, a rating. For anything longer, most of
+ *  the identifying tokens have to appear, in any order and any wording. A
+ *  street written with an abbreviation is on the page, and calling it missing
+ *  is a false accusation about the most consequential check in here. */
+function mentioned(needle: string, hay: string, hayTokens: Set<string>): boolean {
+  const flat = haystack(needle);
+  if (flat.length < 2) return true;
+  if (hay.includes(flat)) return true;
+
+  const parts = tokens(needle);
+  if (parts.length === 0) return true;
+  if (parts.length === 1) return hayTokens.has(parts[0]!);
+  return parts.filter((t) => hayTokens.has(t)).length / parts.length >= 0.7;
+}
+
+/** Values that are notation rather than words. schema.org's priceRange takes
+ *  "$$" or "$$$$" as a band, and no page has ever printed that — flagging it
+ *  reports a convention as a lie. */
+function isNotation(key: string, value: string): boolean {
+  return key === "priceRange" && !/\d/.test(value);
 }
 
 export function checkStructured(report: PageReport): Finding[] {
@@ -116,7 +152,15 @@ export function checkStructured(report: PageReport): Finding[] {
   }
 
   const allTypes = unique(nodes.flatMap(typesOf));
-  const pageText = haystack(`${facts.text} ${facts.title ?? ""} ${facts.metaDescription ?? ""}`);
+  /* Deliberately the full visible text, not the extracted article. A phone
+     number and an address live in the footer on nearly every site, and the
+     article extractor throws footers away — checking against it accused three
+     honest sites in a row of claiming things they plainly displayed. */
+  const source = `${facts.visibleText} ${facts.title ?? ""} ${facts.metaDescription ?? ""}`;
+  const pageText = haystack(source);
+  const pageTokens = new Set(
+    source.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean),
+  );
 
   // --- Required and recommended properties -----------------------------------
   for (const node of nodes) {
@@ -155,7 +199,8 @@ export function checkStructured(report: PageReport): Finding[] {
   for (const node of nodes) {
     for (const { key, label } of CLAIMS) {
       for (const value of literals(node, key)) {
-        if (!mentioned(value, pageText)) {
+        if (isNotation(key, value)) continue;
+        if (!mentioned(value, pageText, pageTokens)) {
           unsupported.push(`${key}: "${truncate(value, 40)}" — ${label} the page never shows`);
         }
       }
@@ -190,7 +235,8 @@ export function checkStructured(report: PageReport): Finding[] {
   const ratingNodes = nodes.filter((n) => typesOf(n).includes("AggregateRating"));
   if (ratingNodes.length) {
     const hasReviews = nodes.some((n) => typesOf(n).includes("Review"));
-    const reviewWordsOnPage = /\b(review|reviews|rating|rated|stars?|testimonial)\b/i.test(facts.text);
+    const reviewWordsOnPage =
+      /\b(review|reviews|rating|rated|stars?|testimonial|recenzi\w*|отзыв\w*)\b/i.test(facts.visibleText);
     if (!hasReviews && !reviewWordsOnPage) {
       out.push(finding("aggregaterating-unsupported", "error",
         "AggregateRating is declared but the page shows no reviews.",
@@ -236,7 +282,7 @@ export function checkStructured(report: PageReport): Finding[] {
     for (const q of list) {
       if (!isNode(q)) continue;
       const name = typeof q["name"] === "string" ? q["name"] : null;
-      if (name && !mentioned(name.slice(0, 40), pageText)) unseen++;
+      if (name && !mentioned(name.slice(0, 40), pageText, pageTokens)) unseen++;
     }
     if (unseen > 0) {
       out.push(finding("faq-not-on-page", "error",

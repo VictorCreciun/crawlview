@@ -152,6 +152,7 @@ export function parseHtml(html: string, baseUrl: string): PageFacts {
     jsonLd: parseJsonLd($),
     images,
     text: readable.text,
+    visibleText: allText,
     wordCount,
     detectedLang: detected.lang,
     detectedLangConfidence: detected.confidence,
